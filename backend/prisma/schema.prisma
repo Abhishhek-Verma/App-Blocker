@@ -1,0 +1,40 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model BlockedApp {
+  id          Int      @id @default(autoincrement())
+  packageName String   @unique @map("package_name")
+  appName     String   @map("app_name")
+  isBlocked   Boolean  @default(true) @map("is_blocked")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("blocked_apps")
+}
+
+model AppSetting {
+  id                  Int      @id @default(autoincrement())
+  deviceId            String   @unique @default("default_device") @map("device_id")
+  pinCode             String?  @map("pin_code")
+  requirePinToUnlock  Boolean  @default(false) @map("require_pin_to_unlock")
+  masterBlockerActive Boolean  @default(true) @map("master_blocker_active")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  @@map("app_settings")
+}
+
+model BlockEvent {
+  id             Int      @id @default(autoincrement())
+  packageName    String   @map("package_name")
+  appName        String   @map("app_name")
+  eventTimestamp DateTime @default(now()) @map("event_timestamp")
+  unlockedViaPin Boolean  @default(false) @map("unlocked_via_pin")
+
+  @@map("block_events")
+}

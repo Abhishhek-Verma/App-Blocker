@@ -1,0 +1,23 @@
+{
+  "name": "sc-app-backend",
+  "version": "1.0.0",
+  "description": "Node.js Express & PostgreSQL Backend for App Blocker",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "build": "prisma generate",
+    "postinstall": "prisma generate",
+    "test": "node test/api.test.js"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.4.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "prisma": "^6.4.1"
+  }
+}

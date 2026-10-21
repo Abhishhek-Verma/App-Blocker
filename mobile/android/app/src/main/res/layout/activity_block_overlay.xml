@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#E60A0D14"
+    android:padding="24dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_centerInParent="true"
+        android:gravity="center"
+        android:orientation="vertical">
+
+        <!-- Shield / Lock Icon Indicator -->
+        <TextView
+            android:id="@+id/tv_shield_icon"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="🛡️"
+            android:textSize="64sp" />
+
+        <!-- Blocked Header -->
+        <TextView
+            android:id="@+id/tv_blocked_title"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="App Blocked"
+            android:textColor="#FFFFFF"
+            android:textSize="26sp"
+            android:textStyle="bold" />
+
+        <!-- App Name & Custom Notice -->
+        <TextView
+            android:id="@+id/tv_blocked_message"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:gravity="center"
+            android:text="Instagram: No, you cannot open it."
+            android:textColor="#9CA3AF"
+            android:textSize="16sp" />
+
+        <!-- PIN Entry Section (Only shown if PIN required) -->
+        <LinearLayout
+            android:id="@+id/layout_pin_entry"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:gravity="center"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <EditText
+                android:id="@+id/et_pin_input"
+                android:layout_width="160dp"
+                android:layout_height="48dp"
+                android:background="#1F2937"
+                android:gravity="center"
+                android:hint="Enter 4-digit PIN"
+                android:inputType="numberPassword"
+                android:maxLength="4"
+                android:textColor="#FFFFFF"
+                android:textColorHint="#6B7280"
+                android:textSize="18sp" />
+
+            <Button
+                android:id="@+id/btn_unlock_pin"
+                android:layout_width="160dp"
+                android:layout_height="48dp"
+                android:layout_marginTop="12dp"
+                android:background="#2563EB"
+                android:text="Unlock"
+                android:textColor="#FFFFFF" />
+        </LinearLayout>
+
+        <!-- Dismiss / Return to Home Button -->
+        <Button
+            android:id="@+id/btn_return_home"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:layout_marginTop="28dp"
+            android:background="#EF4444"
+            android:text="Back to Home Screen"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+    </LinearLayout>
+
+</RelativeLayout>
