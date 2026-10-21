@@ -7,8 +7,8 @@ import { Platform } from 'react-native';
  * - For deployed Render backend: 'https://<your-render-service-name>.onrender.com'
  */
 export const API_CONFIG = {
-  // Replace with your Render URL once deployed (e.g., 'https://app-blocker-api.onrender.com')
-  PRODUCTION_BACKEND_URL: '',
+  // Live Render backend URL
+  PRODUCTION_BACKEND_URL: 'https://app-blocker.onrender.com',
 
   getBaseUrl(): string {
     if (this.PRODUCTION_BACKEND_URL) {
