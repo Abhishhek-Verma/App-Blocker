@@ -42,7 +42,7 @@ class AppBlockerWatchdogService : Service() {
     private val pollRunnable = object : Runnable {
         override fun run() {
             checkForegroundApp()
-            handler.postDelayed(this, 300) // check every 300ms
+            handler.postDelayed(this, 150) // High-frequency 150ms check
         }
     }
 
@@ -78,8 +78,8 @@ class AppBlockerWatchdogService : Service() {
 
         if (blockedSet.contains(foregroundPkg)) {
             val now = System.currentTimeMillis()
-            // Avoid duplicate rapid-fire launches for the same app within 1.5 seconds
-            if (foregroundPkg == lastBlockedPackage && (now - lastBlockedTime) < 1500) {
+            // Avoid duplicate rapid-fire launches for the same app within 1.2 seconds
+            if (foregroundPkg == lastBlockedPackage && (now - lastBlockedTime) < 1200) {
                 return
             }
             lastBlockedPackage = foregroundPkg
@@ -87,33 +87,79 @@ class AppBlockerWatchdogService : Service() {
 
             Log.w(TAG, "Watchdog intercepted blocked app: $foregroundPkg")
 
-            val overlayIntent = Intent(this, BlockOverlayActivity::class.java).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
-                putExtra("BLOCKED_PACKAGE", foregroundPkg)
+            // 1. Kick user out of blocked app to phone Home screen immediately
+            val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+                addCategory(Intent.CATEGORY_HOME)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             }
-            startActivity(overlayIntent)
+            try {
+                startActivity(homeIntent)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to start home intent", e)
+            }
+
+            // 2. Display WindowManager system overlay
+            BlockOverlayManager.show(applicationContext, foregroundPkg)
+
+            // 3. Activity fallback
+            try {
+                val overlayIntent = Intent(this, BlockOverlayActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                    addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                    addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                    putExtra("BLOCKED_PACKAGE", foregroundPkg)
+                }
+                startActivity(overlayIntent)
+            } catch (e: Exception) {
+                // Background activity restrictions on Android 10+ / MIUI are handled by BlockOverlayManager
+            }
         }
     }
 
     private fun getForegroundPackage(): String? {
         val usm = getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager ?: return null
         val endTime = System.currentTimeMillis()
-        val startTime = endTime - 4000
+        val startTime = endTime - 10000 // Last 10 seconds
 
-        val usageEvents = usm.queryEvents(startTime, endTime)
-        val event = UsageEvents.Event()
-        var lastResumedPackage: String? = null
+        // Strategy A: UsageEvents (precise activity transitions)
+        try {
+            val usageEvents = usm.queryEvents(startTime, endTime)
+            val event = UsageEvents.Event()
+            var lastResumedPackage: String? = null
+            var lastEventTime: Long = 0
 
-        while (usageEvents.hasNextEvent()) {
-            usageEvents.getNextEvent(event)
-            if (event.eventType == UsageEvents.Event.ACTIVITY_RESUMED) {
-                lastResumedPackage = event.packageName
+            while (usageEvents.hasNextEvent()) {
+                usageEvents.getNextEvent(event)
+                if (event.eventType == UsageEvents.Event.ACTIVITY_RESUMED && event.timeStamp >= lastEventTime) {
+                    lastResumedPackage = event.packageName
+                    lastEventTime = event.timeStamp
+                }
             }
+            if (lastResumedPackage != null) {
+                return lastResumedPackage
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "UsageEvents query error", e)
         }
-        return lastResumedPackage
+
+        // Strategy B: queryUsageStats fallback
+        try {
+            val statsList = usm.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, startTime, endTime)
+            if (!statsList.isNullOrEmpty()) {
+                var mostRecentStats: android.app.usage.UsageStats? = null
+                for (stats in statsList) {
+                    if (mostRecentStats == null || stats.lastTimeUsed > mostRecentStats.lastTimeUsed) {
+                        mostRecentStats = stats
+                    }
+                }
+                return mostRecentStats?.packageName
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "queryUsageStats fallback error", e)
+        }
+
+        return null
     }
 
     private fun createNotificationChannel() {

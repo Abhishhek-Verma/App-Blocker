@@ -1,6 +1,7 @@
 package com.scapp
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.app.AppOpsManager
 import android.content.Context
 import android.content.Intent
@@ -90,27 +91,35 @@ class MainActivity : Activity() {
 
     private fun setupPermissionButtons() {
         findViewById<Button>(R.id.btn_open_app_info).setOnClickListener {
-            // Direct shortcut to FocusShield App Info so user can tap ⋮ (3 dots) -> "Allow restricted settings"
-            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                data = Uri.fromParts("package", packageName, null)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            startActivity(intent)
-            Toast.makeText(this, "Tap the ⋮ (3 dots) in the top-right corner, then tap 'Allow restricted settings'", Toast.LENGTH_LONG).show()
+            AlertDialog.Builder(this)
+                .setTitle("Unlock Restricted Setting (MIUI / Android 13+)")
+                .setMessage("Android locks Accessibility for sideloaded APKs.\n\nTo unlock:\n1. Tap 'OPEN SETTINGS' below\n2. On the App Info page, tap the 3 DOTS (⋮) at the top-right corner\n3. Tap 'Allow restricted settings'\n4. Confirm your screen lock / fingerprint\n5. Return here & tap '1. Accessibility'!")
+                .setPositiveButton("OPEN SETTINGS") { _, _ ->
+                    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                        data = Uri.fromParts("package", packageName, null)
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    startActivity(intent)
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
         }
 
         findViewById<Button>(R.id.btn_grant_accessibility).setOnClickListener {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            Toast.makeText(this, "Find 'FocusShield' and toggle it ON", Toast.LENGTH_SHORT).show()
         }
 
         findViewById<Button>(R.id.btn_grant_overlay).setOnClickListener {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+                Toast.makeText(this, "Toggle 'Allow display over other apps' to ON", Toast.LENGTH_SHORT).show()
             }
         }
 
         findViewById<Button>(R.id.btn_grant_usage).setOnClickListener {
             startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+            Toast.makeText(this, "Find 'FocusShield' and toggle 'Permit usage access' ON", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -357,6 +366,21 @@ class MainActivity : Activity() {
                         tvAvatar.setTextColor(Color.parseColor("#F43F5E"))
                         tvAvatar.setBackgroundColor(Color.parseColor("#3B1120"))
                         Toast.makeText(this@MainActivity, "${app.appName} is now BLOCKED!", Toast.LENGTH_SHORT).show()
+
+                        // Ensure Watchdog is active
+                        AppBlockerWatchdogService.start(this@MainActivity)
+
+                        val hasAccessibility = AppBlockerAccessibilityService.isServiceRunning
+                        val hasOverlay = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) Settings.canDrawOverlays(this@MainActivity) else true
+                        val hasUsage = isUsageStatsPermissionGranted()
+
+                        if (!hasAccessibility && (!hasOverlay || !hasUsage)) {
+                            Toast.makeText(
+                                this@MainActivity,
+                                "⚠️ Tip: Enable 'Overlay' & 'Usage Access' above to enforce blocking immediately!",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
                     } else {
                         blockedPackages.remove(app.packageName)
                         card.setBackgroundColor(Color.parseColor("#111827"))

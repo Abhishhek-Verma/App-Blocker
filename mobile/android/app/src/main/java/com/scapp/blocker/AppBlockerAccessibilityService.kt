@@ -63,15 +63,25 @@ class AppBlockerAccessibilityService : AccessibilityService() {
 
             Log.w(TAG, "INTERCEPTED BLOCKED APP: $packageName! Enforcing shield.")
 
-            // Launch full-screen custom blocker overlay activity immediately
-            val overlayIntent = Intent(this, BlockOverlayActivity::class.java).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
-                putExtra("BLOCKED_PACKAGE", packageName)
+            // 1. Instantly kick the user out of the blocked app to phone Home screen
+            performGlobalAction(GLOBAL_ACTION_HOME)
+
+            // 2. Display WindowManager system overlay
+            BlockOverlayManager.show(applicationContext, packageName)
+
+            // 3. Fallback: Launch full-screen custom blocker overlay activity
+            try {
+                val overlayIntent = Intent(this, BlockOverlayActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                    addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                    addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                    putExtra("BLOCKED_PACKAGE", packageName)
+                }
+                startActivity(overlayIntent)
+            } catch (e: Exception) {
+                Log.e(TAG, "Activity launch fallback error", e)
             }
-            startActivity(overlayIntent)
         }
     }
 
