@@ -98,6 +98,15 @@ class MainActivity : Activity() {
         tvEmptyTitle = findViewById(R.id.tv_empty_title)
         tvEmptyDesc = findViewById(R.id.tv_empty_desc)
 
+        findViewById<Button>(R.id.btn_empty_browse_all)?.setOnClickListener {
+            currentFilter = FilterMode.ALL
+            btnTabAll.setBackgroundResource(R.drawable.bg_button_primary)
+            btnTabAll.setTextColor(Color.WHITE)
+            btnTabBlocked.setBackgroundColor(Color.parseColor("#1E293B"))
+            btnTabBlocked.setTextColor(Color.parseColor("#94A3B8"))
+            renderAppsList()
+        }
+
         setupPermissionButtons()
         setupMasterToggle()
         setupSearchAndTabs()
@@ -341,6 +350,8 @@ class MainActivity : Activity() {
         }
 
         val resolvedActivities = pm.queryIntentActivities(mainIntent, 0)
+        val addedPackages = HashSet<String>()
+
         for (resolveInfo in resolvedActivities) {
             val appInfo = resolveInfo.activityInfo.applicationInfo
             val pkg = appInfo.packageName
@@ -348,10 +359,34 @@ class MainActivity : Activity() {
 
             val appLabel = pm.getApplicationLabel(appInfo).toString()
             allInstalledApps.add(AppEntry(pkg, appLabel))
+            addedPackages.add(pkg)
+        }
+
+        // Check any package in blockedPackages:
+        // If it's installed on the device (even if not in launcher intent), resolve it and ensure it's in list.
+        // If it's completely uninstalled / nonexistent (e.g. legacy ghost Instagram from v1), purge it!
+        val ghostPackages = ArrayList<String>()
+        for (pkg in blockedPackages) {
+            if (!addedPackages.contains(pkg)) {
+                try {
+                    val appInfo = pm.getApplicationInfo(pkg, 0)
+                    val label = pm.getApplicationLabel(appInfo).toString()
+                    allInstalledApps.add(AppEntry(pkg, label))
+                    addedPackages.add(pkg)
+                } catch (e: PackageManager.NameNotFoundException) {
+                    // Not installed on phone -> purge from blocked set
+                    ghostPackages.add(pkg)
+                }
+            }
+        }
+
+        if (ghostPackages.isNotEmpty()) {
+            blockedPackages.removeAll(ghostPackages.toSet())
+            saveLocalPreferences()
         }
 
         allInstalledApps.sortBy { it.appName.lowercase() }
-        updateTabLabels()
+        updateBlockedCounter()
         renderAppsList()
     }
 
@@ -514,8 +549,8 @@ class MainActivity : Activity() {
             try {
                 val url = URL("$backendUrl/health")
                 val conn = url.openConnection() as HttpURLConnection
-                conn.connectTimeout = 5000
-                conn.readTimeout = 5000
+                conn.connectTimeout = 15000
+                conn.readTimeout = 15000
                 conn.requestMethod = "GET"
                 val code = conn.responseCode
                 runOnUiThread {
