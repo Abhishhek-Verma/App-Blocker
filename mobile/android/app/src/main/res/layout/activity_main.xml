@@ -5,15 +5,15 @@
     android:background="#090D16"
     android:orientation="vertical">
 
-    <!-- Top App Bar -->
+    <!-- Top Navigation Header -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
         android:paddingHorizontal="20dp"
-        android:paddingTop="18dp"
-        android:paddingBottom="12dp">
+        android:paddingTop="20dp"
+        android:paddingBottom="14dp">
 
         <LinearLayout
             android:layout_width="0dp"
@@ -21,19 +21,33 @@
             android:layout_weight="1"
             android:orientation="vertical">
 
-            <TextView
+            <LinearLayout
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="FocusShield"
-                android:textColor="#F8FAFC"
-                android:textSize="24sp"
-                android:textStyle="bold"
-                android:letterSpacing="-0.02" />
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="🛡️"
+                    android:textSize="22sp"
+                    android:layout_marginEnd="8dp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="FocusShield"
+                    android:textColor="#F8FAFC"
+                    android:textSize="24sp"
+                    android:textStyle="bold"
+                    android:letterSpacing="-0.02" />
+            </LinearLayout>
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Real-time Application Firewall"
+                android:text="Zero-Distraction Application Firewall"
                 android:textColor="#64748B"
                 android:textSize="12sp"
                 android:layout_marginTop="2dp" />
@@ -46,7 +60,7 @@
             android:background="#131F37"
             android:paddingHorizontal="10dp"
             android:paddingVertical="5dp"
-            android:text="● Render: Live"
+            android:text="● Cloud: Live"
             android:textColor="#34D399"
             android:textSize="11sp"
             android:textStyle="bold" />
@@ -62,17 +76,17 @@
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:paddingHorizontal="20dp"
-            android:paddingBottom="36dp">
+            android:paddingBottom="40dp">
 
             <!-- Master Switch Card -->
             <LinearLayout
                 android:id="@+id/card_master_shield"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
-                android:background="#111827"
+                android:layout_marginTop="4dp"
+                android:background="@drawable/bg_card_dark"
                 android:orientation="vertical"
-                android:padding="16dp">
+                android:padding="18dp">
 
                 <RelativeLayout
                     android:layout_width="match_parent"
@@ -99,7 +113,7 @@
                             android:layout_height="wrap_content"
                             android:text="ACTIVE &amp; BLOCKING"
                             android:textColor="#34D399"
-                            android:textSize="17sp"
+                            android:textSize="18sp"
                             android:textStyle="bold"
                             android:layout_marginTop="2dp" />
                     </LinearLayout>
@@ -109,24 +123,147 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_alignParentEnd="true"
+                        android:layout_centerVertical="true"
                         android:checked="true" />
                 </RelativeLayout>
             </LinearLayout>
 
-            <!-- Permissions Status & Setup Card -->
+            <!-- Bento Metric Stat Row -->
             <LinearLayout
-                android:id="@+id/card_permissions_wrapper"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="14dp"
-                android:background="#151D2E"
+                android:layout_marginTop="10dp"
+                android:orientation="horizontal">
+
+                <!-- Stat 1: Blocked Count -->
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="6dp"
+                    android:background="@drawable/bg_card_dark"
+                    android:orientation="vertical"
+                    android:padding="14dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="RESTRICTED"
+                        android:textColor="#94A3B8"
+                        android:textSize="10sp"
+                        android:textStyle="bold"
+                        android:letterSpacing="0.06" />
+
+                    <TextView
+                        android:id="@+id/tv_stat_blocked"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="0 Apps"
+                        android:textColor="#F43F5E"
+                        android:textSize="16sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <!-- Stat 2: Engine Status -->
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="6dp"
+                    android:background="@drawable/bg_card_dark"
+                    android:orientation="vertical"
+                    android:padding="14dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="PROTECTION ENGINE"
+                        android:textColor="#94A3B8"
+                        android:textSize="10sp"
+                        android:textStyle="bold"
+                        android:letterSpacing="0.06" />
+
+                    <TextView
+                        android:id="@+id/tv_stat_engine"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="Active &amp; Guarding"
+                        android:textColor="#34D399"
+                        android:textSize="16sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- Permissions Status: Armed Card (Shown when protected) -->
+            <LinearLayout
+                android:id="@+id/layout_permissions_armed"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:background="@drawable/bg_card_armed"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:padding="16dp"
+                android:visibility="gone">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <LinearLayout
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="✓ SHIELD ONLINE"
+                            android:textColor="#34D399"
+                            android:textSize="12sp"
+                            android:textStyle="bold"
+                            android:letterSpacing="0.05" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:text="All required permissions active. Intercepting restricted apps."
+                        android:textColor="#A7F3D0"
+                        android:textSize="11sp" />
+                </LinearLayout>
+
+                <Button
+                    android:id="@+id/btn_toggle_permissions_details"
+                    android:layout_width="wrap_content"
+                    android:layout_height="32dp"
+                    android:background="#064E3B"
+                    android:text="Status ▾"
+                    android:textColor="#6EE7B7"
+                    android:textSize="10sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <!-- Permissions Status & Setup Card (Shown when action needed or expanded) -->
+            <LinearLayout
+                android:id="@+id/layout_permissions_setup"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:background="@drawable/bg_card_dark"
                 android:orientation="vertical"
                 android:padding="16dp">
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="SYSTEM PERMISSIONS"
+                    android:text="REQUIRED SYSTEM ACCESS"
                     android:textColor="#94A3B8"
                     android:textSize="11sp"
                     android:textStyle="bold"
@@ -213,15 +350,16 @@
                         android:layout_width="match_parent"
                         android:layout_height="38dp"
                         android:layout_marginTop="8dp"
-                        android:background="#C2410C"
+                        android:background="@drawable/bg_button_orange"
                         android:text="Open App Info (Tap ⋮ 3 Dots)"
                         android:textColor="#FFFFFF"
                         android:textSize="11sp"
                         android:textStyle="bold" />
                 </LinearLayout>
 
-                <!-- Permission Action Buttons -->
+                <!-- Permission Action Buttons: Dynamically hidden when granted -->
                 <LinearLayout
+                    android:id="@+id/layout_permission_buttons"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="10dp"
@@ -233,7 +371,7 @@
                         android:layout_height="40dp"
                         android:layout_weight="1"
                         android:layout_marginEnd="6dp"
-                        android:background="#4F46E5"
+                        android:background="@drawable/bg_button_primary"
                         android:text="Accessibility"
                         android:textColor="#FFFFFF"
                         android:textSize="11sp"
@@ -245,7 +383,7 @@
                         android:layout_height="40dp"
                         android:layout_weight="1"
                         android:layout_marginEnd="6dp"
-                        android:background="#4F46E5"
+                        android:background="@drawable/bg_button_primary"
                         android:text="Overlay"
                         android:textColor="#FFFFFF"
                         android:textSize="11sp"
@@ -256,7 +394,7 @@
                         android:layout_width="0dp"
                         android:layout_height="40dp"
                         android:layout_weight="1"
-                        android:background="#4F46E5"
+                        android:background="@drawable/bg_button_primary"
                         android:text="Usage Access"
                         android:textColor="#FFFFFF"
                         android:textSize="11sp"
@@ -264,6 +402,7 @@
                 </LinearLayout>
 
                 <TextView
+                    android:id="@+id/tv_permission_tip"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
@@ -300,9 +439,9 @@
                 <EditText
                     android:id="@+id/et_search_apps"
                     android:layout_width="match_parent"
-                    android:layout_height="44dp"
-                    android:background="#151D2E"
-                    android:hint="Search installed apps (e.g. Chrome, Camera)..."
+                    android:layout_height="46dp"
+                    android:background="@drawable/bg_search_input"
+                    android:hint="🔍  Search installed apps (e.g. Chrome, Camera)..."
                     android:textColorHint="#64748B"
                     android:textColor="#FFFFFF"
                     android:paddingHorizontal="14dp"
@@ -320,26 +459,64 @@
                     <Button
                         android:id="@+id/btn_tab_all"
                         android:layout_width="0dp"
-                        android:layout_height="34dp"
+                        android:layout_height="36dp"
                         android:layout_weight="1"
                         android:layout_marginEnd="6dp"
-                        android:background="#312E81"
+                        android:background="@drawable/bg_button_primary"
                         android:text="All Apps"
                         android:textColor="#FFFFFF"
-                        android:textSize="11sp"
+                        android:textSize="12sp"
                         android:textStyle="bold" />
 
                     <Button
                         android:id="@+id/btn_tab_blocked"
                         android:layout_width="0dp"
-                        android:layout_height="34dp"
+                        android:layout_height="36dp"
                         android:layout_weight="1"
                         android:background="#1E293B"
                         android:text="Blocked Only"
                         android:textColor="#94A3B8"
-                        android:textSize="11sp"
+                        android:textSize="12sp"
                         android:textStyle="bold" />
                 </LinearLayout>
+            </LinearLayout>
+
+            <!-- Empty State View (Shown when 0 results) -->
+            <LinearLayout
+                android:id="@+id/layout_empty_state"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="32dp"
+                android:gravity="center"
+                android:orientation="vertical"
+                android:padding="24dp"
+                android:visibility="gone">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="🔍"
+                    android:textSize="40sp" />
+
+                <TextView
+                    android:id="@+id/tv_empty_title"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="No Applications Found"
+                    android:textColor="#F8FAFC"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tv_empty_desc"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:gravity="center"
+                    android:text="No apps match your search or filter criteria."
+                    android:textColor="#64748B"
+                    android:textSize="12sp" />
             </LinearLayout>
 
             <!-- Dynamic Apps List Container -->

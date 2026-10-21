@@ -14,8 +14,10 @@ import android.os.Process
 import android.provider.Settings
 import android.text.Editable
 import android.text.TextWatcher
+import android.view.Gravity
 import android.view.View
 import android.widget.*
+import androidx.core.content.ContextCompat
 import com.scapp.blocker.AppBlockerAccessibilityService
 import com.scapp.blocker.AppBlockerWatchdogService
 import org.json.JSONObject
@@ -34,20 +36,33 @@ class MainActivity : Activity() {
     private lateinit var tvShieldStatus: TextView
     private lateinit var tvRenderStatus: TextView
     private lateinit var tvBlockedCounter: TextView
+    private lateinit var tvStatBlocked: TextView
+    private lateinit var tvStatEngine: TextView
     private lateinit var layoutAppsContainer: LinearLayout
     private lateinit var etSearchApps: EditText
     private lateinit var btnTabAll: Button
     private lateinit var btnTabBlocked: Button
 
+    private lateinit var layoutPermissionsArmed: View
+    private lateinit var layoutPermissionsSetup: View
+    private lateinit var btnTogglePermissionsDetails: Button
     private lateinit var pillAccessibility: TextView
     private lateinit var pillOverlay: TextView
     private lateinit var pillUsage: TextView
     private lateinit var layoutRestrictedGuide: View
+    private lateinit var btnGrantAccessibility: Button
+    private lateinit var btnGrantOverlay: Button
+    private lateinit var btnGrantUsage: Button
+
+    private lateinit var layoutEmptyState: View
+    private lateinit var tvEmptyTitle: TextView
+    private lateinit var tvEmptyDesc: TextView
 
     private val blockedPackages = HashSet<String>()
     private val allInstalledApps = ArrayList<AppEntry>()
     private var currentFilter = FilterMode.ALL
     private var currentSearchQuery = ""
+    private var isPermissionsDetailsExpanded = false
 
     enum class FilterMode { ALL, BLOCKED_ONLY }
 
@@ -61,15 +76,27 @@ class MainActivity : Activity() {
         tvShieldStatus = findViewById(R.id.tv_shield_status)
         tvRenderStatus = findViewById(R.id.tv_render_status)
         tvBlockedCounter = findViewById(R.id.tv_blocked_counter)
+        tvStatBlocked = findViewById(R.id.tv_stat_blocked)
+        tvStatEngine = findViewById(R.id.tv_stat_engine)
         layoutAppsContainer = findViewById(R.id.layout_apps_container)
         etSearchApps = findViewById(R.id.et_search_apps)
         btnTabAll = findViewById(R.id.btn_tab_all)
         btnTabBlocked = findViewById(R.id.btn_tab_blocked)
 
+        layoutPermissionsArmed = findViewById(R.id.layout_permissions_armed)
+        layoutPermissionsSetup = findViewById(R.id.layout_permissions_setup)
+        btnTogglePermissionsDetails = findViewById(R.id.btn_toggle_permissions_details)
         pillAccessibility = findViewById(R.id.pill_accessibility)
         pillOverlay = findViewById(R.id.pill_overlay)
         pillUsage = findViewById(R.id.pill_usage)
         layoutRestrictedGuide = findViewById(R.id.layout_restricted_setting_guide)
+        btnGrantAccessibility = findViewById(R.id.btn_grant_accessibility)
+        btnGrantOverlay = findViewById(R.id.btn_grant_overlay)
+        btnGrantUsage = findViewById(R.id.btn_grant_usage)
+
+        layoutEmptyState = findViewById(R.id.layout_empty_state)
+        tvEmptyTitle = findViewById(R.id.tv_empty_title)
+        tvEmptyDesc = findViewById(R.id.tv_empty_desc)
 
         setupPermissionButtons()
         setupMasterToggle()
@@ -90,10 +117,16 @@ class MainActivity : Activity() {
     }
 
     private fun setupPermissionButtons() {
+        btnTogglePermissionsDetails.setOnClickListener {
+            isPermissionsDetailsExpanded = !isPermissionsDetailsExpanded
+            layoutPermissionsSetup.visibility = if (isPermissionsDetailsExpanded) View.VISIBLE else View.GONE
+            btnTogglePermissionsDetails.text = if (isPermissionsDetailsExpanded) "Hide ▴" else "Status ▾"
+        }
+
         findViewById<Button>(R.id.btn_open_app_info).setOnClickListener {
             AlertDialog.Builder(this)
                 .setTitle("Unlock Restricted Setting (MIUI / Android 13+)")
-                .setMessage("Android locks Accessibility for sideloaded APKs.\n\nTo unlock:\n1. Tap 'OPEN SETTINGS' below\n2. On the App Info page, tap the 3 DOTS (⋮) at the top-right corner\n3. Tap 'Allow restricted settings'\n4. Confirm your screen lock / fingerprint\n5. Return here & tap '1. Accessibility'!")
+                .setMessage("Android locks Accessibility for sideloaded APKs.\n\nTo unlock:\n1. Tap 'OPEN SETTINGS' below\n2. On the App Info page, tap the 3 DOTS (⋮) at the top-right corner\n3. Tap 'Allow restricted settings'\n4. Confirm your screen lock / fingerprint\n5. Return here & tap 'Accessibility'!")
                 .setPositiveButton("OPEN SETTINGS") { _, _ ->
                     val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                         data = Uri.fromParts("package", packageName, null)
@@ -105,19 +138,19 @@ class MainActivity : Activity() {
                 .show()
         }
 
-        findViewById<Button>(R.id.btn_grant_accessibility).setOnClickListener {
+        btnGrantAccessibility.setOnClickListener {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-            Toast.makeText(this, "Find 'FocusShield' and toggle it ON", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Find 'FocusShield' under Downloaded apps and toggle it ON", Toast.LENGTH_SHORT).show()
         }
 
-        findViewById<Button>(R.id.btn_grant_overlay).setOnClickListener {
+        btnGrantOverlay.setOnClickListener {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
                 Toast.makeText(this, "Toggle 'Allow display over other apps' to ON", Toast.LENGTH_SHORT).show()
             }
         }
 
-        findViewById<Button>(R.id.btn_grant_usage).setOnClickListener {
+        btnGrantUsage.setOnClickListener {
             startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
             Toast.makeText(this, "Find 'FocusShield' and toggle 'Permit usage access' ON", Toast.LENGTH_SHORT).show()
         }
@@ -129,23 +162,25 @@ class MainActivity : Activity() {
         val enabledServices = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: ""
         val isAccessGranted = enabledServices.contains(expectedService) || AppBlockerAccessibilityService.isServiceRunning
 
-        if (isAccessGranted) {
-            pillAccessibility.text = "Accessibility: ON"
-            pillAccessibility.setBackgroundColor(Color.parseColor("#064E3B"))
-            pillAccessibility.setTextColor(Color.parseColor("#6EE7B7"))
-            layoutRestrictedGuide.visibility = View.GONE
-        } else {
-            pillAccessibility.text = "Accessibility: OFF"
-            pillAccessibility.setBackgroundColor(Color.parseColor("#371D1D"))
-            pillAccessibility.setTextColor(Color.parseColor("#FCA5A5"))
-            layoutRestrictedGuide.visibility = View.VISIBLE
-        }
-
         // 2. Check Overlay
         val isOverlayGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             Settings.canDrawOverlays(this)
         } else {
             true
+        }
+
+        // 3. Check Usage Access
+        val isUsageGranted = isUsageStatsPermissionGranted()
+
+        // Update Pill Texts & Colors
+        if (isAccessGranted) {
+            pillAccessibility.text = "Accessibility: ON"
+            pillAccessibility.setBackgroundColor(Color.parseColor("#064E3B"))
+            pillAccessibility.setTextColor(Color.parseColor("#6EE7B7"))
+        } else {
+            pillAccessibility.text = "Accessibility: OFF"
+            pillAccessibility.setBackgroundColor(Color.parseColor("#371D1D"))
+            pillAccessibility.setTextColor(Color.parseColor("#FCA5A5"))
         }
 
         if (isOverlayGranted) {
@@ -158,8 +193,6 @@ class MainActivity : Activity() {
             pillOverlay.setTextColor(Color.parseColor("#FCA5A5"))
         }
 
-        // 3. Check Usage Access (for secondary Watchdog protection)
-        val isUsageGranted = isUsageStatsPermissionGranted()
         if (isUsageGranted) {
             pillUsage.text = "Watchdog: ON"
             pillUsage.setBackgroundColor(Color.parseColor("#064E3B"))
@@ -168,6 +201,42 @@ class MainActivity : Activity() {
             pillUsage.text = "Watchdog: OFF"
             pillUsage.setBackgroundColor(Color.parseColor("#371D1D"))
             pillUsage.setTextColor(Color.parseColor("#FCA5A5"))
+        }
+
+        // SMART HIDING: Hide buttons for permissions already granted!
+        // When Overlay is ON -> NO SHOW!
+        btnGrantOverlay.visibility = if (isOverlayGranted) View.GONE else View.VISIBLE
+
+        // When Accessibility is ON -> NO SHOW!
+        btnGrantAccessibility.visibility = if (isAccessGranted) View.GONE else View.VISIBLE
+        layoutRestrictedGuide.visibility = if (isAccessGranted) View.GONE else View.VISIBLE
+
+        // When Usage is ON -> NO SHOW!
+        btnGrantUsage.visibility = if (isUsageGranted) View.GONE else View.VISIBLE
+
+        // Determine protection readiness:
+        // System is armed if Overlay is granted AND at least one detection engine is operational
+        val isProtected = isOverlayGranted && (isAccessGranted || isUsageGranted)
+
+        if (isProtected) {
+            layoutPermissionsArmed.visibility = View.VISIBLE
+            // When all needed permissions are done, hide the setup card completely!
+            if (!isPermissionsDetailsExpanded) {
+                layoutPermissionsSetup.visibility = View.GONE
+            }
+            tvStatEngine.text = if (isAccessGranted && isUsageGranted) {
+                "Dual Engine Active"
+            } else if (isAccessGranted) {
+                "Accessibility Active"
+            } else {
+                "Watchdog Active"
+            }
+            tvStatEngine.setTextColor(Color.parseColor("#34D399"))
+        } else {
+            layoutPermissionsArmed.visibility = View.GONE
+            layoutPermissionsSetup.visibility = View.VISIBLE
+            tvStatEngine.text = "Setup Needed"
+            tvStatEngine.setTextColor(Color.parseColor("#F59E0B"))
         }
     }
 
@@ -196,13 +265,21 @@ class MainActivity : Activity() {
 
     private fun saveLocalPreferences() {
         val prefs = getSharedPreferences(prefsName, Context.MODE_PRIVATE)
-        // CRITICAL FIX: Pass a new HashSet copy so Android SharedPreferences detects the mutation!
+        // Pass a new HashSet copy so Android SharedPreferences detects the mutation!
         prefs.edit().putStringSet(keyBlocked, HashSet(blockedPackages)).apply()
         updateBlockedCounter()
     }
 
     private fun updateBlockedCounter() {
-        tvBlockedCounter.text = "INSTALLED APPS (${blockedPackages.size} BLOCKED)"
+        val count = blockedPackages.size
+        tvBlockedCounter.text = "INSTALLED APPS ($count BLOCKED)"
+        tvStatBlocked.text = if (count == 1) "1 App Restricted" else "$count Apps Restricted"
+        updateTabLabels()
+    }
+
+    private fun updateTabLabels() {
+        btnTabAll.text = "All Apps (${allInstalledApps.size})"
+        btnTabBlocked.text = "Blocked (${blockedPackages.size})"
     }
 
     private fun updateMasterText(active: Boolean) {
@@ -210,7 +287,7 @@ class MainActivity : Activity() {
             tvShieldStatus.text = "ACTIVE & BLOCKING"
             tvShieldStatus.setTextColor(Color.parseColor("#34D399"))
         } else {
-            tvShieldStatus.text = "PAUSED (ALL ALLOWED)"
+            tvShieldStatus.text = "SHIELD DISABLED"
             tvShieldStatus.setTextColor(Color.parseColor("#94A3B8"))
         }
     }
@@ -239,7 +316,7 @@ class MainActivity : Activity() {
 
         btnTabAll.setOnClickListener {
             currentFilter = FilterMode.ALL
-            btnTabAll.setBackgroundColor(Color.parseColor("#312E81"))
+            btnTabAll.setBackgroundResource(R.drawable.bg_button_primary)
             btnTabAll.setTextColor(Color.WHITE)
             btnTabBlocked.setBackgroundColor(Color.parseColor("#1E293B"))
             btnTabBlocked.setTextColor(Color.parseColor("#94A3B8"))
@@ -248,7 +325,7 @@ class MainActivity : Activity() {
 
         btnTabBlocked.setOnClickListener {
             currentFilter = FilterMode.BLOCKED_ONLY
-            btnTabBlocked.setBackgroundColor(Color.parseColor("#312E81"))
+            btnTabBlocked.setBackgroundResource(R.drawable.bg_button_primary)
             btnTabBlocked.setTextColor(Color.WHITE)
             btnTabAll.setBackgroundColor(Color.parseColor("#1E293B"))
             btnTabAll.setTextColor(Color.parseColor("#94A3B8"))
@@ -273,8 +350,8 @@ class MainActivity : Activity() {
             allInstalledApps.add(AppEntry(pkg, appLabel))
         }
 
-        // Sort alphabetically by app name
         allInstalledApps.sortBy { it.appName.lowercase() }
+        updateTabLabels()
         renderAppsList()
     }
 
@@ -294,24 +371,30 @@ class MainActivity : Activity() {
         }
 
         if (filtered.isEmpty()) {
-            val tvEmpty = TextView(this).apply {
-                text = if (currentFilter == FilterMode.BLOCKED_ONLY) "No apps currently blocked." else "No apps match your search."
-                setTextColor(Color.parseColor("#64748B"))
-                textSize = 13f
-                gravity = android.view.Gravity.CENTER
-                setPadding(0, 40, 0, 40)
+            layoutEmptyState.visibility = View.VISIBLE
+            if (currentFilter == FilterMode.BLOCKED_ONLY) {
+                tvEmptyTitle.text = "No Apps Blocked Yet"
+                tvEmptyDesc.text = "Search or browse below and toggle any app to restrict distractions."
+            } else {
+                tvEmptyTitle.text = "No Matching Apps"
+                tvEmptyDesc.text = "No apps found matching '$currentSearchQuery'"
             }
-            layoutAppsContainer.addView(tvEmpty)
             return
         }
+
+        layoutEmptyState.visibility = View.GONE
 
         for (app in filtered) {
             val isBlocked = blockedPackages.contains(app.packageName)
 
             val card = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
                 setPadding(20, 18, 20, 18)
-                setBackgroundColor(Color.parseColor(if (isBlocked) "#1E1624" else "#111827"))
+                background = ContextCompat.getDrawable(
+                    this@MainActivity,
+                    if (isBlocked) R.drawable.bg_app_card_blocked else R.drawable.bg_app_card_normal
+                )
                 val params = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
@@ -326,7 +409,8 @@ class MainActivity : Activity() {
                 setTextColor(Color.parseColor(if (isBlocked) "#F43F5E" else "#818CF8"))
                 setBackgroundColor(Color.parseColor(if (isBlocked) "#3B1120" else "#1E253B"))
                 textSize = 16f
-                gravity = android.view.Gravity.CENTER
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                gravity = Gravity.CENTER
                 val avatarParams = LinearLayout.LayoutParams(80, 80)
                 avatarParams.setMargins(0, 0, 18, 0)
                 layoutParams = avatarParams
@@ -337,12 +421,35 @@ class MainActivity : Activity() {
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
 
+            // Title Row with optional "BLOCKED" pill badge
+            val titleRow = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+
             val tvName = TextView(this).apply {
                 text = app.appName
                 setTextColor(Color.WHITE)
                 textSize = 15f
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
             }
+            titleRow.addView(tvName)
+
+            val tvBadge = TextView(this).apply {
+                text = "BLOCKED"
+                setTextColor(Color.parseColor("#EF4444"))
+                textSize = 9f
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                setBackgroundResource(R.drawable.bg_pill_blocked)
+                setPadding(12, 4, 12, 4)
+                visibility = if (isBlocked) View.VISIBLE else View.GONE
+                val badgeParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { setMargins(12, 0, 0, 0) }
+                layoutParams = badgeParams
+            }
+            titleRow.addView(tvBadge)
 
             val tvPkg = TextView(this).apply {
                 text = app.packageName
@@ -354,7 +461,7 @@ class MainActivity : Activity() {
                 ).apply { setMargins(0, 2, 0, 0) }
             }
 
-            textLayout.addView(tvName)
+            textLayout.addView(titleRow)
             textLayout.addView(tvPkg)
 
             val sw = Switch(this).apply {
@@ -362,9 +469,10 @@ class MainActivity : Activity() {
                 setOnCheckedChangeListener { _, checked ->
                     if (checked) {
                         blockedPackages.add(app.packageName)
-                        card.setBackgroundColor(Color.parseColor("#1E1624"))
+                        card.background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_app_card_blocked)
                         tvAvatar.setTextColor(Color.parseColor("#F43F5E"))
                         tvAvatar.setBackgroundColor(Color.parseColor("#3B1120"))
+                        tvBadge.visibility = View.VISIBLE
                         Toast.makeText(this@MainActivity, "${app.appName} is now BLOCKED!", Toast.LENGTH_SHORT).show()
 
                         // Ensure Watchdog is active
@@ -383,9 +491,10 @@ class MainActivity : Activity() {
                         }
                     } else {
                         blockedPackages.remove(app.packageName)
-                        card.setBackgroundColor(Color.parseColor("#111827"))
+                        card.background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_app_card_normal)
                         tvAvatar.setTextColor(Color.parseColor("#818CF8"))
                         tvAvatar.setBackgroundColor(Color.parseColor("#1E253B"))
+                        tvBadge.visibility = View.GONE
                         Toast.makeText(this@MainActivity, "${app.appName} Unblocked", Toast.LENGTH_SHORT).show()
                     }
                     saveLocalPreferences()
@@ -411,7 +520,7 @@ class MainActivity : Activity() {
                 val code = conn.responseCode
                 runOnUiThread {
                     if (code == 200) {
-                        tvRenderStatus.text = "● Render: Live"
+                        tvRenderStatus.text = "● Cloud: Live"
                         tvRenderStatus.setTextColor(Color.parseColor("#34D399"))
                     } else {
                         tvRenderStatus.text = "● Offline Mode"
