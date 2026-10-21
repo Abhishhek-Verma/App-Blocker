@@ -71,6 +71,7 @@ class BlockOverlayActivity : Activity() {
         }
     }
 
+    @Suppress("DEPRECATION")
     override fun onBackPressed() {
         // Prevent back button from slipping through to the blocked application
         val homeIntent = Intent(Intent.ACTION_MAIN).apply {

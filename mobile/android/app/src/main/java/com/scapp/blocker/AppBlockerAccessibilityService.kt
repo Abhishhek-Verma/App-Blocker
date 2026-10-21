@@ -20,6 +20,9 @@ class AppBlockerAccessibilityService : AccessibilityService() {
             private set
     }
 
+    private var lastInterceptedPackage: String? = null
+    private var lastInterceptedTime: Long = 0
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         isServiceRunning = true
@@ -49,18 +52,23 @@ class AppBlockerAccessibilityService : AccessibilityService() {
 
         val blockedSet = prefs.getStringSet(KEY_BLOCKED_PACKAGES, emptySet()) ?: emptySet()
 
-        // 3. Intercept blocked target (e.g. com.instagram.android)
+        // 3. Intercept blocked target (e.g. Chrome, Instagram, etc.)
         if (blockedSet.contains(packageName)) {
+            val now = System.currentTimeMillis()
+            if (packageName == lastInterceptedPackage && (now - lastInterceptedTime) < 1500) {
+                return
+            }
+            lastInterceptedPackage = packageName
+            lastInterceptedTime = now
+
             Log.w(TAG, "INTERCEPTED BLOCKED APP: $packageName! Enforcing shield.")
 
-            // Send user to Home screen to dismiss blocked app instantly
-            performGlobalAction(GLOBAL_ACTION_HOME)
-
-            // Launch full-screen custom blocker overlay activity
+            // Launch full-screen custom blocker overlay activity immediately
             val overlayIntent = Intent(this, BlockOverlayActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
                 addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
                 putExtra("BLOCKED_PACKAGE", packageName)
             }
             startActivity(overlayIntent)
