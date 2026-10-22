@@ -24,9 +24,23 @@ model AppSetting {
   pinCode             String?  @map("pin_code")
   requirePinToUnlock  Boolean  @default(false) @map("require_pin_to_unlock")
   masterBlockerActive Boolean  @default(true) @map("master_blocker_active")
+  isDutyModeActive    Boolean  @default(false) @map("is_duty_mode_active")
+  schoolStartTime     String   @default("09:00") @map("school_start_time")
+  schoolEndTime       String   @default("15:00") @map("school_end_time")
   updatedAt           DateTime @updatedAt @map("updated_at")
 
   @@map("app_settings")
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  name      String?  @default("")
+  email     String   @unique
+  password  String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("users")
 }
 
 model BlockEvent {
@@ -38,3 +52,4 @@ model BlockEvent {
 
   @@map("block_events")
 }
+

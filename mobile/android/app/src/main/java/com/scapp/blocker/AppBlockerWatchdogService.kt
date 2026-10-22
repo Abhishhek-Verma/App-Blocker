@@ -10,8 +10,10 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.util.Log
+import com.scapp.MainActivity
 
 class AppBlockerWatchdogService : Service() {
+
 
     companion object {
         private const val TAG = "WatchdogService"
@@ -50,7 +52,7 @@ class AppBlockerWatchdogService : Service() {
             } catch (t: Throwable) {
                 Log.e(TAG, "Watchdog tick error", t)
             } finally {
-                handler.postDelayed(this, 120) // Fast 120ms polling interval
+                handler.postDelayed(this, 80) // Ultra-fast 80ms polling interval
             }
         }
     }
@@ -94,20 +96,63 @@ class AppBlockerWatchdogService : Service() {
     private fun checkForegroundApp() {
         val prefs = getSharedPreferences(AppBlockerConfig.PREFS_NAME, Context.MODE_PRIVATE)
         val isMaster = prefs.getBoolean(AppBlockerConfig.KEY_MASTER_ACTIVE, true)
-        if (!isMaster) return
+        val isDutyMode = prefs.getBoolean(AppBlockerConfig.KEY_DUTY_MODE_ACTIVE, false)
+        if (!isMaster && !isDutyMode) return
 
         val foregroundPkg = getForegroundPackage() ?: return
 
-        // Skip own app, system UI, and launchers
-        if (foregroundPkg == packageName ||
-            foregroundPkg == "com.android.systemui" ||
-            foregroundPkg.contains("launcher", ignoreCase = true) ||
-            foregroundPkg.contains("home", ignoreCase = true)) {
+        // Skip own app
+        if (foregroundPkg == packageName) {
             return
         }
 
-        val blockedSet = prefs.getStringSet(AppBlockerConfig.KEY_BLOCKED_PACKAGES, emptySet()) ?: emptySet()
-        if (!blockedSet.contains(foregroundPkg)) return
+        var shouldBlock = false
+        var isDutyBlock = false
+
+        if (isDutyMode) {
+            // Check if user is attempting to escape via Home Launcher, Recents overview, or Task Switcher:
+            val isHomeOrRecents = foregroundPkg.contains("launcher", ignoreCase = true) ||
+                    foregroundPkg.contains("home", ignoreCase = true) ||
+                    foregroundPkg.contains("quickstep", ignoreCase = true) ||
+                    foregroundPkg == "com.android.systemui" ||
+                    foregroundPkg == "com.miui.home" ||
+                    foregroundPkg == "com.sec.android.app.launcher" ||
+                    foregroundPkg == "com.google.android.apps.nexuslauncher" ||
+                    foregroundPkg == "com.android.launcher3"
+
+            if (isHomeOrRecents) {
+                val now = System.currentTimeMillis()
+                if (now - lastBlockedTime > 150) {
+                    lastBlockedTime = now
+                    Log.w(TAG, "Duty Mode: Intercepted Home/Recents overview ($foregroundPkg). Forcing SchoolMini to front.")
+                    val bringHome = Intent(this, MainActivity::class.java).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                    }
+                    startActivity(bringHome)
+                }
+                return
+            }
+
+            // In Duty Mode, check if foregroundPkg is an allowed app:
+            if (!isAllowedInDutyMode(foregroundPkg)) {
+                shouldBlock = true
+                isDutyBlock = true
+            }
+        } else {
+            // Normal mode: skip system UI & launchers
+            if (foregroundPkg == "com.android.systemui" ||
+                foregroundPkg.contains("launcher", ignoreCase = true) ||
+                foregroundPkg.contains("home", ignoreCase = true)) {
+                return
+            }
+
+            val blockedSet = prefs.getStringSet(AppBlockerConfig.KEY_BLOCKED_PACKAGES, emptySet()) ?: emptySet()
+            if (blockedSet.contains(foregroundPkg)) {
+                shouldBlock = true
+            }
+        }
+
+        if (!shouldBlock) return
 
         val now = System.currentTimeMillis()
         if (foregroundPkg == lastBlockedPackage && (now - lastBlockedTime) < 1000) {
@@ -116,18 +161,30 @@ class AppBlockerWatchdogService : Service() {
         lastBlockedPackage = foregroundPkg
         lastBlockedTime = now
 
-        Log.w(TAG, "INTERCEPTED BLOCKED TARGET: $foregroundPkg. Enforcing firewall shield.")
+        Log.w(TAG, "INTERCEPTED BLOCKED TARGET: $foregroundPkg (dutyMode=$isDutyBlock). Enforcing firewall shield.")
 
-        // 1. Kick user back to Android Home Screen immediately
-        try {
-            val homeIntent = Intent(Intent.ACTION_MAIN).apply {
-                addCategory(Intent.CATEGORY_HOME)
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        // 1. Kick user back to SchoolMini (in Duty Mode) or Android Home (in Normal Mode)
+        if (isDutyBlock) {
+            try {
+                val dutyIntent = Intent(this, MainActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                }
+                startActivity(dutyIntent)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed launching SchoolMini duty intent", e)
             }
-            startActivity(homeIntent)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed launching home intent", e)
+        } else {
+            try {
+                val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+                    addCategory(Intent.CATEGORY_HOME)
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                }
+                startActivity(homeIntent)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed launching home intent", e)
+            }
         }
+
 
         // 2. Attach full-screen WindowManager overlay shield
         try {
@@ -141,12 +198,42 @@ class AppBlockerWatchdogService : Service() {
             val overlayIntent = Intent(this, BlockOverlayActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
                 putExtra("BLOCKED_PACKAGE", foregroundPkg)
+                putExtra("IS_DUTY_MODE", isDutyBlock)
             }
             startActivity(overlayIntent)
         } catch (e: Exception) {
             Log.e(TAG, "Failed launching overlay activity", e)
         }
     }
+
+    private fun isAllowedInDutyMode(pkg: String): Boolean {
+        if (pkg == packageName) return true
+
+        for (prefix in AppBlockerConfig.DUTY_MODE_ALLOWED_PREFIXES) {
+            if (pkg.equals(prefix, ignoreCase = true) || pkg.startsWith(prefix, ignoreCase = true)) {
+                return true
+            }
+        }
+
+        try {
+            val telecomManager = getSystemService(Context.TELECOM_SERVICE) as? android.telecom.TelecomManager
+            val defaultDialer = telecomManager?.defaultDialerPackage
+            if (!defaultDialer.isNullOrEmpty() && pkg == defaultDialer) return true
+        } catch (e: Exception) {}
+
+        try {
+            val defaultSms = android.provider.Telephony.Sms.getDefaultSmsPackage(this)
+            if (!defaultSms.isNullOrEmpty() && pkg == defaultSms) return true
+        } catch (e: Exception) {}
+
+        val lower = pkg.lowercase()
+        if (lower.contains("dialer") || lower.contains("incallui") || lower.contains("mms") || lower.contains("telecom")) {
+            return true
+        }
+
+        return false
+    }
+
 
     private fun getForegroundPackage(): String? {
         val usm = getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager ?: return null

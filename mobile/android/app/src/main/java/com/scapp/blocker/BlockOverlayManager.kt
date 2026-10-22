@@ -15,6 +15,7 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.TextView
+import com.scapp.MainActivity
 import com.scapp.R
 
 object BlockOverlayManager {
@@ -74,12 +75,10 @@ object BlockOverlayManager {
 
                 overlayView.findViewById<Button>(R.id.btn_overlay_return_home).setOnClickListener {
                     hide()
-                    // Send user to Home screen
-                    val homeIntent = Intent(Intent.ACTION_MAIN).apply {
-                        addCategory(Intent.CATEGORY_HOME)
-                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                    val focusIntent = Intent(context, MainActivity::class.java).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP
                     }
-                    context.startActivity(homeIntent)
+                    context.startActivity(focusIntent)
                 }
 
                 wm.addView(overlayView, params)

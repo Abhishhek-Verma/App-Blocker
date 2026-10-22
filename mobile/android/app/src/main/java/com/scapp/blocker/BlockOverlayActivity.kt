@@ -29,6 +29,8 @@ class BlockOverlayActivity : Activity() {
             blockedPackage.split('.').lastOrNull()?.replaceFirstChar { it.uppercase() } ?: "App"
         }
 
+        val isDutyMode = intent.getBooleanExtra("IS_DUTY_MODE", false)
+
         val tvShieldIcon = findViewById<TextView>(com.scapp.R.id.tv_shield_icon)
         val tvTitle = findViewById<TextView>(com.scapp.R.id.tv_blocked_title)
         val tvMessage = findViewById<TextView>(com.scapp.R.id.tv_blocked_message)
@@ -37,31 +39,40 @@ class BlockOverlayActivity : Activity() {
         val etPin = findViewById<EditText>(com.scapp.R.id.et_pin_input)
         val btnUnlockPin = findViewById<Button>(com.scapp.R.id.btn_unlock_pin)
 
-        tvShieldIcon.text = "🛡️"
-        tvTitle.text = "$appName is Blocked"
-        tvMessage.text = "$appName: Restricted by FocusShield."
-        btnReturnHome.text = "Back to Home Screen"
-
-        // Read PIN requirements from SharedPreferences
-        val prefs = getSharedPreferences(AppBlockerConfig.PREFS_NAME, Context.MODE_PRIVATE)
-        val requirePin = prefs.getBoolean(AppBlockerConfig.KEY_REQUIRE_PIN, false)
-        val storedPin = prefs.getString(AppBlockerConfig.KEY_PIN_CODE, null)
-
-        if (requirePin && !storedPin.isNullOrEmpty()) {
-            layoutPin.visibility = View.VISIBLE
-            btnUnlockPin.setOnClickListener {
-                val inputPin = etPin.text.toString().trim()
-                if (inputPin == storedPin) {
-                    Toast.makeText(this, "$appName temporarily unlocked", Toast.LENGTH_SHORT).show()
-                    finish()
-                } else {
-                    Toast.makeText(this, "Incorrect PIN", Toast.LENGTH_SHORT).show()
-                    etPin.setText("")
-                }
-            }
-        } else {
+        if (isDutyMode) {
+            tvShieldIcon.text = "🎒"
+            tvTitle.text = "$appName is Blocked"
+            tvMessage.text = "SchoolMini Duty Mode is Active.\nAll distracting apps are restricted during school hours (09:00 - 15:00).\nOnly Calling, Messages, Chrome, Camera, and AI assistants are permitted."
+            btnReturnHome.text = "Return to SchoolMini Focus"
             layoutPin.visibility = View.GONE
+        } else {
+            tvShieldIcon.text = "🛡️"
+            tvTitle.text = "$appName is Blocked"
+            tvMessage.text = "$appName: Restricted by SchoolMini."
+            btnReturnHome.text = "Back to Home Screen"
+
+            // Read PIN requirements from SharedPreferences
+            val prefs = getSharedPreferences(AppBlockerConfig.PREFS_NAME, Context.MODE_PRIVATE)
+            val requirePin = prefs.getBoolean(AppBlockerConfig.KEY_REQUIRE_PIN, false)
+            val storedPin = prefs.getString(AppBlockerConfig.KEY_PIN_CODE, null)
+
+            if (requirePin && !storedPin.isNullOrEmpty()) {
+                layoutPin.visibility = View.VISIBLE
+                btnUnlockPin.setOnClickListener {
+                    val inputPin = etPin.text.toString().trim()
+                    if (inputPin == storedPin) {
+                        Toast.makeText(this, "$appName temporarily unlocked", Toast.LENGTH_SHORT).show()
+                        finish()
+                    } else {
+                        Toast.makeText(this, "Incorrect PIN", Toast.LENGTH_SHORT).show()
+                        etPin.setText("")
+                    }
+                }
+            } else {
+                layoutPin.visibility = View.GONE
+            }
         }
+
 
         // Return to Android home screen
         btnReturnHome.setOnClickListener {

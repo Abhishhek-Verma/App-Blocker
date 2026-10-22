@@ -31,12 +31,15 @@ app.use((err, req, res, next) => {
   res.status(500).json({ success: false, error: err.message || 'Internal Server Error' });
 });
 
-// Initialize database and start listening
-db.initDB().then(() => {
-  app.listen(PORT, () => {
-    console.log(`[Server] App Blocker API running on http://127.0.0.1:${PORT}`);
-    console.log(`[Server] Ready to serve React Native mobile client.`);
+// Initialize database and start listening if run directly
+if (require.main === module) {
+  db.initDB().then(() => {
+    app.listen(PORT, () => {
+      console.log(`[Server] App Blocker API running on http://127.0.0.1:${PORT}`);
+      console.log(`[Server] Ready to serve React Native / Android mobile client.`);
+    });
   });
-});
+}
 
 module.exports = app;
+

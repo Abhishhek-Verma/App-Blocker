@@ -12,11 +12,11 @@
         android:layout_height="wrap_content"
         android:layout_gravity="center"
         android:layout_marginHorizontal="28dp"
-        android:background="#131A29"
+        android:background="@drawable/bg_card_white"
         android:orientation="vertical"
         android:padding="28dp">
 
-        <!-- Shield Icon & Restriction Badge -->
+        <!-- Logo & Restriction Badge -->
         <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
@@ -25,22 +25,30 @@
             android:gravity="center_vertical"
             android:layout_marginBottom="16dp">
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="🛡️"
-                android:textSize="36sp" />
+            <FrameLayout
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:background="@drawable/bg_logo_container">
+
+                <ImageView
+                    android:layout_width="30dp"
+                    android:layout_height="30dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_schoolmini_logo"
+                    android:contentDescription="SchoolMini Logo"
+                    android:scaleType="fitCenter" />
+            </FrameLayout>
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="10dp"
-                android:background="#450A0A"
+                android:layout_marginStart="12dp"
+                android:background="#FEF2F2"
                 android:paddingHorizontal="10dp"
-                android:paddingVertical="4dp"
-                android:text="ACCESS BLOCKED"
-                android:textColor="#EF4444"
-                android:textSize="12sp"
+                android:paddingVertical="5dp"
+                android:text="RESTRICTED APP"
+                android:textColor="#DC2626"
+                android:textSize="11sp"
                 android:textStyle="bold"
                 android:letterSpacing="0.05" />
         </LinearLayout>
@@ -52,7 +60,7 @@
             android:layout_height="wrap_content"
             android:layout_gravity="center_horizontal"
             android:text="App Blocked"
-            android:textColor="#FFFFFF"
+            android:textColor="#0F172A"
             android:textSize="22sp"
             android:textStyle="bold" />
 
@@ -74,19 +82,19 @@
             android:layout_gravity="center_horizontal"
             android:layout_marginTop="16dp"
             android:gravity="center"
-            android:text="FocusShield has blocked access to this app.\nStay focused on your goals!"
-            android:textColor="#94A3B8"
+            android:text="SchoolMini has restricted this app during school hours.\nStay focused on your education!"
+            android:textColor="#334155"
             android:textSize="14sp"
             android:lineSpacingExtra="3dp" />
 
-        <!-- Return to Home Button -->
+        <!-- Return to SchoolMini Button -->
         <Button
             android:id="@+id/btn_overlay_return_home"
             android:layout_width="match_parent"
             android:layout_height="50dp"
             android:layout_marginTop="24dp"
-            android:background="#4F46E5"
-            android:text="Return to Home Screen"
+            android:background="@drawable/bg_button_brand"
+            android:text="Return to SchoolMini Focus"
             android:textColor="#FFFFFF"
             android:textSize="14sp"
             android:textStyle="bold" />

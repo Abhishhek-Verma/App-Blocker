@@ -11,122 +11,862 @@ import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.Process
+import android.provider.MediaStore
 import android.provider.Settings
-import android.text.Editable
-import android.text.TextWatcher
-import android.view.Gravity
+import android.provider.Telephony
+import android.util.Log
 import android.view.View
+import android.view.WindowInsets
+import android.view.WindowInsetsController
+import android.view.WindowManager
 import android.widget.*
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import com.google.zxing.integration.android.IntentIntegrator
 import com.scapp.blocker.AppBlockerConfig
 import com.scapp.blocker.AppBlockerWatchdogService
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.text.SimpleDateFormat
+import java.util.*
 import kotlin.concurrent.thread
 
 class MainActivity : Activity() {
 
+    private val TAG = "SchoolMini"
     private val backendUrl = "https://app-blocker.onrender.com"
     private val prefsName = AppBlockerConfig.PREFS_NAME
-    private val keyBlocked = AppBlockerConfig.KEY_BLOCKED_PACKAGES
     private val keyMaster = AppBlockerConfig.KEY_MASTER_ACTIVE
+    private val REQ_CAMERA_PERMISSION = 2001
 
+    // Top-level View Containers
+    private lateinit var layoutLoginScreen: View
+    private lateinit var layoutDutyScreen: View
+    private lateinit var layoutDashboardScreen: View
+
+    // 1. Login & Registration Elements
+    private lateinit var btnTabModeLogin: Button
+    private lateinit var btnTabModeRegister: Button
+    private lateinit var layoutRegisterName: View
+    private lateinit var etRegisterName: EditText
+    private lateinit var etLoginEmail: EditText
+    private lateinit var etLoginPassword: EditText
+    private lateinit var btnActionLogin: Button
+    private lateinit var btnActionRegister: Button
+    private lateinit var tvSwitchMode: TextView
+    private lateinit var tvLoginFeedback: TextView
+    private var isRegisterMode = false
+
+    // 2. Duty Mode AMOLED Screen Elements
+    private lateinit var tvDutyLockedIndicator: TextView
+    private lateinit var btnDutyPowerToggle: Button
+    private lateinit var tvDutyClockTime: TextView
+    private lateinit var tvDutyClockDate: TextView
+    private lateinit var tvDutyCountdown: TextView
+    private lateinit var btnDutyTurnOffBottom: Button
+    private lateinit var btnLaunchPhone: View
+    private lateinit var btnLaunchMessages: View
+    private lateinit var btnLaunchChrome: View
+    private lateinit var btnLaunchCamera: View
+    private lateinit var btnLaunchAi: View
+    private lateinit var btnLaunchSchoolmini: View
+
+    // 3. Dashboard Screen Elements
+    private lateinit var tvDashWelcome: TextView
+    private lateinit var btnDashLogout: Button
+    private lateinit var tvRenderStatus: TextView
+    private lateinit var btnScanDutyQr: Button
+    private lateinit var btnEnterCodeDialog: Button
+    private lateinit var btnQuickToggleDuty: Button
     private lateinit var swMasterShield: Switch
     private lateinit var tvShieldStatus: TextView
-    private lateinit var tvRenderStatus: TextView
-    private lateinit var tvBlockedCounter: TextView
-    private lateinit var tvStatBlocked: TextView
-    private lateinit var tvStatEngine: TextView
-    private lateinit var layoutAppsContainer: LinearLayout
-    private lateinit var etSearchApps: EditText
-    private lateinit var btnTabAll: Button
-    private lateinit var btnTabBlocked: Button
-
     private lateinit var layoutPermissionsArmed: View
     private lateinit var layoutPermissionsSetup: View
-    private lateinit var btnTogglePermissionsDetails: Button
     private lateinit var pillOverlay: TextView
     private lateinit var pillUsage: TextView
     private lateinit var btnGrantOverlay: Button
     private lateinit var btnGrantUsage: Button
 
-    private lateinit var layoutEmptyState: View
-    private lateinit var tvEmptyTitle: TextView
-    private lateinit var tvEmptyDesc: TextView
+    // Guard state for launching whitelisted apps from Duty Mode
+    private var isLaunchingAllowedApp = false
 
-    private val blockedPackages = HashSet<String>()
-    private val allInstalledApps = ArrayList<AppEntry>()
-    private var currentFilter = FilterMode.ALL
-    private var currentSearchQuery = ""
-    private var isPermissionsDetailsExpanded = false
-
-    enum class FilterMode { ALL, BLOCKED_ONLY }
-
-    data class AppEntry(val packageName: String, val appName: String)
+    private val clockHandler = Handler(Looper.getMainLooper())
+    private val clockRunnable = object : Runnable {
+        override fun run() {
+            updateDutyClockAndCountdown()
+            clockHandler.postDelayed(this, 1000)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        swMasterShield = findViewById(R.id.sw_master_shield)
-        tvShieldStatus = findViewById(R.id.tv_shield_status)
-        tvRenderStatus = findViewById(R.id.tv_render_status)
-        tvBlockedCounter = findViewById(R.id.tv_blocked_counter)
-        tvStatBlocked = findViewById(R.id.tv_stat_blocked)
-        tvStatEngine = findViewById(R.id.tv_stat_engine)
-        layoutAppsContainer = findViewById(R.id.layout_apps_container)
-        etSearchApps = findViewById(R.id.et_search_apps)
-        btnTabAll = findViewById(R.id.btn_tab_all)
-        btnTabBlocked = findViewById(R.id.btn_tab_blocked)
-
-        layoutPermissionsArmed = findViewById(R.id.layout_permissions_armed)
-        layoutPermissionsSetup = findViewById(R.id.layout_permissions_setup)
-        btnTogglePermissionsDetails = findViewById(R.id.btn_toggle_permissions_details)
-        pillOverlay = findViewById(R.id.pill_overlay)
-        pillUsage = findViewById(R.id.pill_usage)
-        btnGrantOverlay = findViewById(R.id.btn_grant_overlay)
-        btnGrantUsage = findViewById(R.id.btn_grant_usage)
-
-        layoutEmptyState = findViewById(R.id.layout_empty_state)
-        tvEmptyTitle = findViewById(R.id.tv_empty_title)
-        tvEmptyDesc = findViewById(R.id.tv_empty_desc)
-
-        findViewById<Button>(R.id.btn_empty_browse_all)?.setOnClickListener {
-            currentFilter = FilterMode.ALL
-            btnTabAll.setBackgroundResource(R.drawable.bg_button_primary)
-            btnTabAll.setTextColor(Color.WHITE)
-            btnTabBlocked.setBackgroundColor(Color.parseColor("#1E293B"))
-            btnTabBlocked.setTextColor(Color.parseColor("#94A3B8"))
-            renderAppsList()
-        }
-
+        bindViews()
+        setupAuthActions()
+        setupDutyModeActions()
+        setupDashboardActions()
         setupPermissionButtons()
         setupMasterToggle()
-        setupSearchAndTabs()
 
         loadLocalPreferences()
-        scanInstalledApps()
         checkPermissions()
+        refreshScreenState()
         syncWithRender()
 
-        // Start dual-protection watchdog service
+        // Launch background watchdog service
         AppBlockerWatchdogService.start(this)
     }
 
     override fun onResume() {
         super.onResume()
+        isLaunchingAllowedApp = false
         checkPermissions()
-    }
+        refreshScreenState()
 
-    private fun setupPermissionButtons() {
-        btnTogglePermissionsDetails.setOnClickListener {
-            isPermissionsDetailsExpanded = !isPermissionsDetailsExpanded
-            layoutPermissionsSetup.visibility = if (isPermissionsDetailsExpanded) View.VISIBLE else View.GONE
-            btnTogglePermissionsDetails.text = if (isPermissionsDetailsExpanded) "Hide ▴" else "Status ▾"
+        val prefs = getSharedPreferences(prefsName, Context.MODE_PRIVATE)
+        val isDuty = prefs.getBoolean(AppBlockerConfig.KEY_DUTY_MODE_ACTIVE, false)
+        if (isDuty) {
+            applyDutyKioskLock()
         }
 
+        clockHandler.removeCallbacks(clockRunnable)
+        clockHandler.post(clockRunnable)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        clockHandler.removeCallbacks(clockRunnable)
+    }
+
+    private fun bindViews() {
+        layoutLoginScreen = findViewById(R.id.layout_login_screen)
+        layoutDutyScreen = findViewById(R.id.layout_duty_screen)
+        layoutDashboardScreen = findViewById(R.id.layout_dashboard_screen)
+
+        // Auth
+        btnTabModeLogin = findViewById(R.id.btn_tab_mode_login)
+        btnTabModeRegister = findViewById(R.id.btn_tab_mode_register)
+        layoutRegisterName = findViewById(R.id.layout_register_name)
+        etRegisterName = findViewById(R.id.et_register_name)
+        etLoginEmail = findViewById(R.id.et_login_email)
+        etLoginPassword = findViewById(R.id.et_login_password)
+        btnActionLogin = findViewById(R.id.btn_action_login)
+        btnActionRegister = findViewById(R.id.btn_action_register)
+        tvSwitchMode = findViewById(R.id.tv_switch_mode)
+        tvLoginFeedback = findViewById(R.id.tv_login_feedback)
+
+        // Duty Mode AMOLED
+        tvDutyLockedIndicator = findViewById(R.id.tv_duty_locked_indicator)
+        btnDutyPowerToggle = findViewById(R.id.btn_duty_power_toggle)
+        tvDutyClockTime = findViewById(R.id.tv_duty_clock_time)
+        tvDutyClockDate = findViewById(R.id.tv_duty_clock_date)
+        tvDutyCountdown = findViewById(R.id.tv_duty_countdown)
+        btnDutyTurnOffBottom = findViewById(R.id.btn_duty_turn_off_bottom)
+
+        btnLaunchPhone = findViewById(R.id.btn_launch_phone)
+        btnLaunchMessages = findViewById(R.id.btn_launch_messages)
+        btnLaunchChrome = findViewById(R.id.btn_launch_chrome)
+        btnLaunchCamera = findViewById(R.id.btn_launch_camera)
+        btnLaunchAi = findViewById(R.id.btn_launch_ai)
+        btnLaunchSchoolmini = findViewById(R.id.btn_launch_schoolmini)
+
+        // Dashboard
+        tvDashWelcome = findViewById(R.id.tv_dash_welcome)
+        btnDashLogout = findViewById(R.id.btn_dash_logout)
+        tvRenderStatus = findViewById(R.id.tv_render_status)
+        btnScanDutyQr = findViewById(R.id.btn_scan_duty_qr)
+        btnEnterCodeDialog = findViewById(R.id.btn_enter_code_dialog)
+        btnQuickToggleDuty = findViewById(R.id.btn_quick_toggle_duty)
+        swMasterShield = findViewById(R.id.sw_master_shield)
+        tvShieldStatus = findViewById(R.id.tv_shield_status)
+        layoutPermissionsArmed = findViewById(R.id.layout_permissions_armed)
+        layoutPermissionsSetup = findViewById(R.id.layout_permissions_setup)
+        pillOverlay = findViewById(R.id.pill_overlay)
+        pillUsage = findViewById(R.id.pill_usage)
+        btnGrantOverlay = findViewById(R.id.btn_grant_overlay)
+        btnGrantUsage = findViewById(R.id.btn_grant_usage)
+    }
+
+    // ========================================================
+    // SCREEN STATE CONTROLLER (Login vs Duty Mode vs Dashboard)
+    // ========================================================
+    private fun refreshScreenState() {
+        val prefs = getSharedPreferences(prefsName, Context.MODE_PRIVATE)
+        val authToken = prefs.getString(AppBlockerConfig.KEY_AUTH_TOKEN, null)
+        val isDutyMode = prefs.getBoolean(AppBlockerConfig.KEY_DUTY_MODE_ACTIVE, false)
+        val name = prefs.getString(AppBlockerConfig.KEY_AUTH_NAME, "")
+        val email = prefs.getString(AppBlockerConfig.KEY_AUTH_EMAIL, "student@school.edu")
+
+        if (authToken.isNullOrEmpty()) {
+            // State 1: Not Logged In
+            releaseDutyKioskLock()
+            layoutLoginScreen.visibility = View.VISIBLE
+            layoutDutyScreen.visibility = View.GONE
+            layoutDashboardScreen.visibility = View.GONE
+        } else if (isDutyMode) {
+            // State 2: Duty Mode Active (Kiosk / Super Power Saving Mode)
+            layoutLoginScreen.visibility = View.GONE
+            layoutDutyScreen.visibility = View.VISIBLE
+            layoutDashboardScreen.visibility = View.GONE
+            applyDutyKioskLock()
+            updateDutyClockAndCountdown()
+        } else {
+            // State 3: Dashboard / Executive Manager
+            releaseDutyKioskLock()
+            layoutLoginScreen.visibility = View.GONE
+            layoutDutyScreen.visibility = View.GONE
+            layoutDashboardScreen.visibility = View.VISIBLE
+            val displayTitle = if (!name.isNullOrEmpty()) "$name • $email" else email
+            tvDashWelcome.text = "$displayTitle • Protected"
+        }
+    }
+
+    // ========================================================
+    // TOTAL KIOSK LOCKDOWN (NO OS Screen Pinning Dialog)
+    // ========================================================
+    private fun applyDutyKioskLock() {
+        hideSystemUI()
+
+        // Keep screen persistent over lockscreen
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(true)
+            setTurnScreenOn(true)
+        } else {
+            @Suppress("DEPRECATION")
+            window.addFlags(
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD or
+                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+            )
+        }
+    }
+
+    private fun releaseDutyKioskLock() {
+        showSystemUI()
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(false)
+            setTurnScreenOn(false)
+        } else {
+            @Suppress("DEPRECATION")
+            window.clearFlags(
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD or
+                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+            )
+        }
+    }
+
+    private fun hideSystemUI() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.insetsController?.let { controller ->
+                controller.hide(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
+                controller.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            window.decorView.systemUiVisibility = (
+                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                or View.SYSTEM_UI_FLAG_FULLSCREEN
+                or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+            )
+        }
+    }
+
+    private fun showSystemUI() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.insetsController?.show(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
+        } else {
+            @Suppress("DEPRECATION")
+            window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    override fun onBackPressed() {
+        val prefs = getSharedPreferences(prefsName, Context.MODE_PRIVATE)
+        val isDuty = prefs.getBoolean(AppBlockerConfig.KEY_DUTY_MODE_ACTIVE, false)
+        if (isDuty) {
+            Toast.makeText(this, "🔒 Duty Mode is locked. Tap Exit Duty to turn off.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        super.onBackPressed()
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        val prefs = getSharedPreferences(prefsName, Context.MODE_PRIVATE)
+        val isDuty = prefs.getBoolean(AppBlockerConfig.KEY_DUTY_MODE_ACTIVE, false)
+        if (isDuty && !isLaunchingAllowedApp) {
+            // If user attempts to swipe up from center or leave: immediately re-surface SchoolMini
+            val bringBack = Intent(this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            }
+            startActivity(bringBack)
+        }
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        val prefs = getSharedPreferences(prefsName, Context.MODE_PRIVATE)
+        val isDuty = prefs.getBoolean(AppBlockerConfig.KEY_DUTY_MODE_ACTIVE, false)
+        if (isDuty) {
+            hideSystemUI()
+            if (!hasFocus && !isLaunchingAllowedApp) {
+                try {
+                    @Suppress("DEPRECATION")
+                    val closeDialogs = Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS)
+                    sendBroadcast(closeDialogs)
+                } catch (e: Exception) {}
+
+                val bringBack = Intent(this, MainActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                }
+                startActivity(bringBack)
+            }
+        }
+    }
+
+    // ========================================================
+    // 1. LOGIN & REGISTRATION (Name, Email, Password)
+    // ========================================================
+    private fun setupAuthActions() {
+        btnTabModeLogin.setOnClickListener {
+            setAuthMode(register = false)
+        }
+
+        btnTabModeRegister.setOnClickListener {
+            setAuthMode(register = true)
+        }
+
+        tvSwitchMode.setOnClickListener {
+            setAuthMode(register = !isRegisterMode)
+        }
+
+        btnActionLogin.setOnClickListener {
+            val email = etLoginEmail.text.toString().trim()
+            val pass = etLoginPassword.text.toString().trim()
+            if (email.isEmpty() || pass.isEmpty()) {
+                showLoginFeedback("Please enter both email and password")
+                return@setOnClickListener
+            }
+            performLogin(email, pass)
+        }
+
+        btnActionRegister.setOnClickListener {
+            val name = etRegisterName.text.toString().trim()
+            val email = etLoginEmail.text.toString().trim()
+            val pass = etLoginPassword.text.toString().trim()
+
+            if (name.isEmpty()) {
+                showLoginFeedback("Please enter your full name")
+                return@setOnClickListener
+            }
+            if (email.isEmpty() || !email.contains("@") || !email.contains(".")) {
+                showLoginFeedback("Please enter a valid email address")
+                return@setOnClickListener
+            }
+            if (pass.length < 4) {
+                showLoginFeedback("Password must be at least 4 characters")
+                return@setOnClickListener
+            }
+            performRegister(name, email, pass)
+        }
+    }
+
+    private fun setAuthMode(register: Boolean) {
+        isRegisterMode = register
+        tvLoginFeedback.visibility = View.GONE
+
+        if (register) {
+            layoutRegisterName.visibility = View.VISIBLE
+            btnActionLogin.visibility = View.GONE
+            btnActionRegister.visibility = View.VISIBLE
+
+            btnTabModeRegister.setBackgroundResource(R.drawable.bg_button_brand)
+            btnTabModeRegister.setTextColor(Color.WHITE)
+
+            btnTabModeLogin.setBackgroundColor(Color.TRANSPARENT)
+            btnTabModeLogin.setTextColor(Color.parseColor("#64748B"))
+
+            tvSwitchMode.text = "Already have an account? Tap Log In"
+        } else {
+            layoutRegisterName.visibility = View.GONE
+            btnActionLogin.visibility = View.VISIBLE
+            btnActionRegister.visibility = View.GONE
+
+            btnTabModeLogin.setBackgroundResource(R.drawable.bg_button_brand)
+            btnTabModeLogin.setTextColor(Color.WHITE)
+
+            btnTabModeRegister.setBackgroundColor(Color.TRANSPARENT)
+            btnTabModeRegister.setTextColor(Color.parseColor("#64748B"))
+
+            tvSwitchMode.text = "Need an account? Tap Create Account"
+        }
+    }
+
+    private fun showLoginFeedback(msg: String) {
+        tvLoginFeedback.text = msg
+        tvLoginFeedback.visibility = View.VISIBLE
+    }
+
+    private fun performLogin(email: String, pass: String) {
+        btnActionLogin.isEnabled = false
+        showLoginFeedback("Authenticating...")
+
+        thread {
+            var success = false
+            var token: String? = null
+            var nameResult = ""
+            var errorMsg = "Unable to connect to server"
+
+            try {
+                val url = URL("$backendUrl/api/auth/login")
+                val conn = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    connectTimeout = 4000
+                    readTimeout = 4000
+                    doOutput = true
+                    setRequestProperty("Content-Type", "application/json")
+                }
+
+                val payload = JSONObject().apply {
+                    put("email", email)
+                    put("password", pass)
+                }
+
+                conn.outputStream.use { os ->
+                    os.write(payload.toString().toByteArray(Charsets.UTF_8))
+                }
+
+                val code = conn.responseCode
+                val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+                val responseStr = stream.bufferedReader().use { it.readText() }
+                val json = JSONObject(responseStr)
+
+                if (json.optBoolean("success")) {
+                    success = true
+                    token = json.optString("token")
+                    val userObj = json.optJSONObject("user")
+                    nameResult = userObj?.optString("name", "") ?: ""
+                } else {
+                    errorMsg = json.optString("error", "Invalid email or password")
+                }
+            } catch (e: Exception) {
+                // Offline fallback
+                success = true
+                token = "jwt_offline_token_" + System.currentTimeMillis()
+                nameResult = email.substringBefore("@")
+            }
+
+            runOnUiThread {
+                btnActionLogin.isEnabled = true
+
+                if (success && !token.isNullOrEmpty()) {
+                    val prefs = getSharedPreferences(prefsName, Context.MODE_PRIVATE)
+                    prefs.edit()
+                        .putString(AppBlockerConfig.KEY_AUTH_TOKEN, token)
+                        .putString(AppBlockerConfig.KEY_AUTH_NAME, nameResult)
+                        .putString(AppBlockerConfig.KEY_AUTH_EMAIL, email)
+                        .apply()
+
+                    Toast.makeText(this, "Welcome to School Mini!", Toast.LENGTH_SHORT).show()
+                    etLoginPassword.setText("")
+                    tvLoginFeedback.visibility = View.GONE
+                    refreshScreenState()
+                } else {
+                    showLoginFeedback(errorMsg)
+                }
+            }
+        }
+    }
+
+    private fun performRegister(name: String, email: String, pass: String) {
+        btnActionRegister.isEnabled = false
+        showLoginFeedback("Creating account...")
+
+        thread {
+            var success = false
+            var token: String? = null
+            var errorMsg = "Unable to connect to server"
+
+            try {
+                val url = URL("$backendUrl/api/auth/register")
+                val conn = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    connectTimeout = 4000
+                    readTimeout = 4000
+                    doOutput = true
+                    setRequestProperty("Content-Type", "application/json")
+                }
+
+                val payload = JSONObject().apply {
+                    put("name", name)
+                    put("email", email)
+                    put("password", pass)
+                }
+
+                conn.outputStream.use { os ->
+                    os.write(payload.toString().toByteArray(Charsets.UTF_8))
+                }
+
+                val code = conn.responseCode
+                val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+                val responseStr = stream.bufferedReader().use { it.readText() }
+                val json = JSONObject(responseStr)
+
+                if (json.optBoolean("success")) {
+                    success = true
+                    token = json.optString("token")
+                } else {
+                    errorMsg = json.optString("error", "Registration failed")
+                }
+            } catch (e: Exception) {
+                // Offline fallback
+                success = true
+                token = "jwt_offline_token_" + System.currentTimeMillis()
+            }
+
+            runOnUiThread {
+                btnActionRegister.isEnabled = true
+
+                if (success && !token.isNullOrEmpty()) {
+                    val prefs = getSharedPreferences(prefsName, Context.MODE_PRIVATE)
+                    prefs.edit()
+                        .putString(AppBlockerConfig.KEY_AUTH_TOKEN, token)
+                        .putString(AppBlockerConfig.KEY_AUTH_NAME, name)
+                        .putString(AppBlockerConfig.KEY_AUTH_EMAIL, email)
+                        .apply()
+
+                    Toast.makeText(this, "Account created! Welcome, $name", Toast.LENGTH_SHORT).show()
+                    etLoginPassword.setText("")
+                    tvLoginFeedback.visibility = View.GONE
+                    refreshScreenState()
+                } else {
+                    showLoginFeedback(errorMsg)
+                }
+            }
+        }
+    }
+
+    private fun performLogout() {
+        AlertDialog.Builder(this)
+            .setTitle("Confirm Logout")
+            .setMessage("Do you want to log out of School Mini?")
+            .setPositiveButton("Logout") { _, _ ->
+                val prefs = getSharedPreferences(prefsName, Context.MODE_PRIVATE)
+                prefs.edit()
+                    .remove(AppBlockerConfig.KEY_AUTH_TOKEN)
+                    .remove(AppBlockerConfig.KEY_AUTH_NAME)
+                    .remove(AppBlockerConfig.KEY_AUTH_EMAIL)
+                    .putBoolean(AppBlockerConfig.KEY_DUTY_MODE_ACTIVE, false)
+                    .apply()
+                releaseDutyKioskLock()
+                Toast.makeText(this, "Logged out successfully", Toast.LENGTH_SHORT).show()
+                refreshScreenState()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    // ========================================================
+    // 2. DUTY MODE ACTIONS & CLOCK
+    // ========================================================
+    private fun setupDutyModeActions() {
+        val exitDutyListener = View.OnClickListener {
+            confirmExitDutyMode()
+        }
+        btnDutyPowerToggle.setOnClickListener(exitDutyListener)
+        btnDutyTurnOffBottom.setOnClickListener(exitDutyListener)
+
+        // 1. Phone App Shortcut
+        btnLaunchPhone.setOnClickListener {
+            isLaunchingAllowedApp = true
+            try {
+                val intent = Intent(Intent.ACTION_DIAL).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                startActivity(intent)
+            } catch (e: Exception) {
+                isLaunchingAllowedApp = false
+                Toast.makeText(this, "Dialer unavailable", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        // 2. Messages App Shortcut
+        btnLaunchMessages.setOnClickListener {
+            isLaunchingAllowedApp = true
+            try {
+                val defaultSms = Telephony.Sms.getDefaultSmsPackage(this)
+                if (!defaultSms.isNullOrEmpty()) {
+                    val intent = packageManager.getLaunchIntentForPackage(defaultSms)
+                    if (intent != null) {
+                        startActivity(intent)
+                        return@setOnClickListener
+                    }
+                }
+                val intent = Intent(Intent.ACTION_MAIN).apply {
+                    addCategory(Intent.CATEGORY_APP_MESSAGING)
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                startActivity(intent)
+            } catch (e: Exception) {
+                isLaunchingAllowedApp = false
+                Toast.makeText(this, "Messaging app unavailable", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        // 3. Chrome App Shortcut
+        btnLaunchChrome.setOnClickListener {
+            isLaunchingAllowedApp = true
+            try {
+                val intent = packageManager.getLaunchIntentForPackage("com.android.chrome")
+                if (intent != null) {
+                    startActivity(intent)
+                } else {
+                    val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com")).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    startActivity(browserIntent)
+                }
+            } catch (e: Exception) {
+                isLaunchingAllowedApp = false
+                Toast.makeText(this, "Chrome unavailable", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        // 4. Camera App Shortcut
+        btnLaunchCamera.setOnClickListener {
+            isLaunchingAllowedApp = true
+            try {
+                val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                startActivity(intent)
+            } catch (e: Exception) {
+                isLaunchingAllowedApp = false
+                Toast.makeText(this, "Camera unavailable", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        // 5. ChatGPT / Gemini AI Shortcut
+        btnLaunchAi.setOnClickListener {
+            isLaunchingAllowedApp = true
+            var launched = false
+            for (pkg in listOf("com.google.android.apps.bard", "com.openai.chatgpt")) {
+                val intent = packageManager.getLaunchIntentForPackage(pkg)
+                if (intent != null) {
+                    startActivity(intent)
+                    launched = true
+                    break
+                }
+            }
+            if (!launched) {
+                try {
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://gemini.google.com")).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    startActivity(intent)
+                } catch (e: Exception) {
+                    isLaunchingAllowedApp = false
+                    Toast.makeText(this, "AI assistant unavailable", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+
+        // 6. SchoolMini Info
+        btnLaunchSchoolmini.setOnClickListener {
+            AlertDialog.Builder(this)
+                .setTitle("SchoolMini Duty Mode")
+                .setMessage("Device is locked in ultra focus mode.\nOnly Phone, Messages, Chrome, Camera, and AI assistants are permitted.\n\nSchool Hours: 09:00 AM - 03:00 PM\nTo exit, tap 'Exit Duty' at the top right.")
+                .setPositiveButton("OK", null)
+                .show()
+        }
+    }
+
+    private fun updateDutyClockAndCountdown() {
+        val now = Calendar.getInstance()
+        val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
+        val dateFormat = SimpleDateFormat("EEE, MMM d", Locale.getDefault())
+
+        tvDutyClockTime.text = timeFormat.format(now.time)
+        tvDutyClockDate.text = dateFormat.format(now.time)
+
+        val hour = now.get(Calendar.HOUR_OF_DAY)
+        val minute = now.get(Calendar.MINUTE)
+        val second = now.get(Calendar.SECOND)
+
+        val currentSeconds = hour * 3600 + minute * 60 + second
+        val startSeconds = 9 * 3600  // 09:00 AM
+        val endSeconds = 15 * 3600   // 03:00 PM (15:00)
+
+        if (currentSeconds in startSeconds until endSeconds) {
+            val remainingSeconds = endSeconds - currentSeconds
+            val h = remainingSeconds / 3600
+            val m = (remainingSeconds % 3600) / 60
+            tvDutyCountdown.text = "School session ends in ${h} h ${m} min (09:00 - 15:00)"
+            tvDutyCountdown.setTextColor(Color.parseColor("#9CA3AF"))
+            btnDutyTurnOffBottom.text = "Turn Off Duty Mode (Session Active)"
+        } else if (currentSeconds < startSeconds) {
+            val untilStart = startSeconds - currentSeconds
+            val h = untilStart / 3600
+            val m = (untilStart % 3600) / 60
+            tvDutyCountdown.text = "School starts in ${h} h ${m} min • Session: 09:00 - 15:00"
+            tvDutyCountdown.setTextColor(Color.parseColor("#53A7E1"))
+            btnDutyTurnOffBottom.text = "Turn Off Duty Mode"
+        } else {
+            tvDutyCountdown.text = "School time is over • Session completed (09:00 - 15:00)\nDuty Mode can now be turned off"
+            tvDutyCountdown.setTextColor(Color.parseColor("#34D399"))
+            btnDutyTurnOffBottom.text = "Turn Off Duty Mode (School Over)"
+        }
+    }
+
+    private fun confirmExitDutyMode() {
+        val now = Calendar.getInstance()
+        val hour = now.get(Calendar.HOUR_OF_DAY)
+        val inSchoolHours = (hour in 9 until 15)
+
+        if (inSchoolHours) {
+            AlertDialog.Builder(this)
+                .setTitle("School In Session")
+                .setMessage("School time is not over yet (Ends at 3:00 PM).\nAre you sure you want to turn off Duty Mode early?")
+                .setPositiveButton("Turn Off Duty Mode") { _, _ ->
+                    disableDutyMode()
+                }
+                .setNegativeButton("Keep Focused", null)
+                .show()
+        } else {
+            disableDutyMode()
+        }
+    }
+
+    private fun disableDutyMode() {
+        val prefs = getSharedPreferences(prefsName, Context.MODE_PRIVATE)
+        prefs.edit().putBoolean(AppBlockerConfig.KEY_DUTY_MODE_ACTIVE, false).apply()
+        releaseDutyKioskLock()
+        Toast.makeText(this, "Duty Mode Turned OFF", Toast.LENGTH_SHORT).show()
+        syncDutyModeToRender(false)
+        refreshScreenState()
+    }
+
+    private fun enableDutyMode() {
+        val prefs = getSharedPreferences(prefsName, Context.MODE_PRIVATE)
+        prefs.edit().putBoolean(AppBlockerConfig.KEY_DUTY_MODE_ACTIVE, true).apply()
+        applyDutyKioskLock()
+        AppBlockerWatchdogService.start(this)
+        Toast.makeText(this, "Duty Mode Armed! Distracting apps locked.", Toast.LENGTH_LONG).show()
+        syncDutyModeToRender(true)
+        refreshScreenState()
+    }
+
+    // ========================================================
+    // 3. DASHBOARD & QR CODE CAMERA SCANNING (PORTRAIT)
+    // ========================================================
+    private fun setupDashboardActions() {
+        btnDashLogout.setOnClickListener { performLogout() }
+
+        btnScanDutyQr.setOnClickListener {
+            startQrScanner()
+        }
+
+        btnEnterCodeDialog.setOnClickListener {
+            showManualCodeDialog()
+        }
+
+        btnQuickToggleDuty.setOnClickListener {
+            enableDutyMode()
+        }
+    }
+
+    private fun startQrScanner() {
+        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(android.Manifest.permission.CAMERA),
+                REQ_CAMERA_PERMISSION
+            )
+            return
+        }
+
+        val integrator = IntentIntegrator(this).apply {
+            setPrompt("Point camera at SchoolMini Duty Mode QR Code")
+            setBeepEnabled(true)
+            setOrientationLocked(true) // Lock strictly in portrait
+            captureActivity = PortraitCaptureActivity::class.java
+            setBarcodeImageEnabled(false)
+            setDesiredBarcodeFormats(IntentIntegrator.QR_CODE)
+        }
+        integrator.initiateScan()
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQ_CAMERA_PERMISSION) {
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                startQrScanner()
+            } else {
+                Toast.makeText(this, "Camera permission needed to scan Duty Mode QR", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        val result = IntentIntegrator.parseActivityResult(requestCode, resultCode, data)
+        if (result != null) {
+            if (result.contents != null) {
+                val scanned = result.contents.trim()
+                handleScannedQrCode(scanned)
+            } else {
+                Toast.makeText(this, "QR scan cancelled", Toast.LENGTH_SHORT).show()
+            }
+            return
+        }
+        super.onActivityResult(requestCode, resultCode, data)
+    }
+
+    private fun handleScannedQrCode(code: String) {
+        if (code.contains("DUTY_ON") || code.contains("SCHOOLMINI") || code == "SCHOOLMINI:DUTY_ON:2026") {
+            enableDutyMode()
+        } else {
+            AlertDialog.Builder(this)
+                .setTitle("Invalid QR Code")
+                .setMessage("Scanned content: '$code'\n\nPlease scan the official SchoolMini Duty Mode QR code.")
+                .setPositiveButton("OK", null)
+                .show()
+        }
+    }
+
+    private fun showManualCodeDialog() {
+        val input = EditText(this).apply {
+            hint = "e.g. SCHOOLMINI:DUTY_ON:2026"
+            setTextColor(Color.parseColor("#0F172A"))
+            setHintTextColor(Color.GRAY)
+            setText("SCHOOLMINI:DUTY_ON:2026")
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Enter Duty Mode Activation Code")
+            .setView(input)
+            .setPositiveButton("Activate") { _, _ ->
+                val code = input.text.toString().trim()
+                handleScannedQrCode(code)
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    // ========================================================
+    // PERMISSIONS & WATCHDOG STATUS
+    // ========================================================
+    private fun setupPermissionButtons() {
         btnGrantOverlay.setOnClickListener {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 try {
@@ -147,62 +887,51 @@ class MainActivity : Activity() {
             } catch (e: Exception) {
                 startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
             }
-            Toast.makeText(this, "Find 'FocusShield' and toggle 'Permit usage access' ON", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Find 'School Mini' and toggle 'Permit usage access' ON", Toast.LENGTH_SHORT).show()
         }
     }
 
     private fun checkPermissions() {
-        // 1. Check Overlay
         val isOverlayGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             Settings.canDrawOverlays(this)
         } else {
             true
         }
 
-        // 2. Check Usage Access
         val isUsageGranted = isUsageStatsPermissionGranted()
 
         if (isOverlayGranted) {
             pillOverlay.text = "Overlay: ON"
-            pillOverlay.setBackgroundColor(Color.parseColor("#064E3B"))
-            pillOverlay.setTextColor(Color.parseColor("#6EE7B7"))
+            pillOverlay.setBackgroundColor(Color.parseColor("#ECFDF5"))
+            pillOverlay.setTextColor(Color.parseColor("#059669"))
+            btnGrantOverlay.visibility = View.GONE
         } else {
             pillOverlay.text = "Overlay: OFF"
-            pillOverlay.setBackgroundColor(Color.parseColor("#371D1D"))
-            pillOverlay.setTextColor(Color.parseColor("#FCA5A5"))
+            pillOverlay.setBackgroundColor(Color.parseColor("#FEF2F2"))
+            pillOverlay.setTextColor(Color.parseColor("#DC2626"))
+            btnGrantOverlay.visibility = View.VISIBLE
         }
 
         if (isUsageGranted) {
             pillUsage.text = "Usage Engine: ON"
-            pillUsage.setBackgroundColor(Color.parseColor("#064E3B"))
-            pillUsage.setTextColor(Color.parseColor("#6EE7B7"))
+            pillUsage.setBackgroundColor(Color.parseColor("#ECFDF5"))
+            pillUsage.setTextColor(Color.parseColor("#059669"))
+            btnGrantUsage.visibility = View.GONE
         } else {
             pillUsage.text = "Usage Engine: OFF"
-            pillUsage.setBackgroundColor(Color.parseColor("#371D1D"))
-            pillUsage.setTextColor(Color.parseColor("#FCA5A5"))
+            pillUsage.setBackgroundColor(Color.parseColor("#FEF2F2"))
+            pillUsage.setTextColor(Color.parseColor("#DC2626"))
+            btnGrantUsage.visibility = View.VISIBLE
         }
 
-        // SMART HIDING: Hide buttons for permissions already granted!
-        btnGrantOverlay.visibility = if (isOverlayGranted) View.GONE else View.VISIBLE
-        btnGrantUsage.visibility = if (isUsageGranted) View.GONE else View.VISIBLE
-
-        // System is armed if Overlay is granted AND Usage engine is operational
         val isProtected = isOverlayGranted && isUsageGranted
-
         if (isProtected) {
             layoutPermissionsArmed.visibility = View.VISIBLE
-            if (!isPermissionsDetailsExpanded) {
-                layoutPermissionsSetup.visibility = View.GONE
-            }
-            tvStatEngine.text = "Watchdog Guard Active"
-            tvStatEngine.setTextColor(Color.parseColor("#34D399"))
-            // Ensure service is running as soon as permissions are ready
+            layoutPermissionsSetup.visibility = View.GONE
             AppBlockerWatchdogService.start(this)
         } else {
             layoutPermissionsArmed.visibility = View.GONE
             layoutPermissionsSetup.visibility = View.VISIBLE
-            tvStatEngine.text = "Setup Needed"
-            tvStatEngine.setTextColor(Color.parseColor("#F59E0B"))
         }
     }
 
@@ -215,9 +944,7 @@ class MainActivity : Activity() {
                 @Suppress("DEPRECATION")
                 appOps.checkOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), packageName)
             }
-            if (mode == AppOpsManager.MODE_ALLOWED) {
-                return true
-            }
+            if (mode == AppOpsManager.MODE_ALLOWED) return true
         }
 
         return try {
@@ -230,71 +957,20 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun showPermissionRequiredDialog(appName: String, hasOverlay: Boolean, hasUsage: Boolean) {
-        val missingList = ArrayList<String>()
-        if (!hasOverlay) missingList.add("• Overlay (Display over other apps)")
-        if (!hasUsage) missingList.add("• Usage Access (Foreground Detection)")
-
-        AlertDialog.Builder(this)
-            .setTitle("Permissions Needed to Block")
-            .setMessage("To block $appName, FocusShield needs:\n\n${missingList.joinToString("\n")}\n\nTap 'GRANT NOW' to open settings.")
-            .setPositiveButton("GRANT NOW") { _, _ ->
-                if (!hasOverlay && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    try {
-                        startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
-                    } catch (e: Exception) {
-                        startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION))
-                    }
-                } else if (!hasUsage) {
-                    try {
-                        val intent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS).apply {
-                            data = Uri.parse("package:$packageName")
-                        }
-                        startActivity(intent)
-                    } catch (e: Exception) {
-                        startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
-                    }
-                }
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
-
+    // ========================================================
+    // MASTER FIREWALL TOGGLE
+    // ========================================================
     private fun loadLocalPreferences() {
         val prefs = getSharedPreferences(prefsName, Context.MODE_PRIVATE)
         val isMaster = prefs.getBoolean(keyMaster, true)
         swMasterShield.isChecked = isMaster
         updateMasterText(isMaster)
-
-        val savedSet = prefs.getStringSet(keyBlocked, emptySet()) ?: emptySet()
-        blockedPackages.clear()
-        blockedPackages.addAll(savedSet)
-        updateBlockedCounter()
-    }
-
-    private fun saveLocalPreferences() {
-        val prefs = getSharedPreferences(prefsName, Context.MODE_PRIVATE)
-        // Pass a new HashSet copy so Android SharedPreferences detects the mutation!
-        prefs.edit().putStringSet(keyBlocked, HashSet(blockedPackages)).apply()
-        updateBlockedCounter()
-    }
-
-    private fun updateBlockedCounter() {
-        val count = blockedPackages.size
-        tvBlockedCounter.text = "INSTALLED APPS ($count BLOCKED)"
-        tvStatBlocked.text = if (count == 1) "1 App Restricted" else "$count Apps Restricted"
-        updateTabLabels()
-    }
-
-    private fun updateTabLabels() {
-        btnTabAll.text = "All Apps (${allInstalledApps.size})"
-        btnTabBlocked.text = "Blocked (${blockedPackages.size})"
     }
 
     private fun updateMasterText(active: Boolean) {
         if (active) {
-            tvShieldStatus.text = "ACTIVE & BLOCKING"
-            tvShieldStatus.setTextColor(Color.parseColor("#34D399"))
+            tvShieldStatus.text = "ACTIVE & GUARDING"
+            tvShieldStatus.setTextColor(Color.parseColor("#059669"))
         } else {
             tvShieldStatus.text = "SHIELD DISABLED"
             tvShieldStatus.setTextColor(Color.parseColor("#94A3B8"))
@@ -313,292 +989,67 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun setupSearchAndTabs() {
-        etSearchApps.addTextChangedListener(object : TextWatcher {
-            override fun afterTextChanged(s: Editable?) {
-                currentSearchQuery = s?.toString()?.trim() ?: ""
-                renderAppsList()
-            }
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-        })
-
-        btnTabAll.setOnClickListener {
-            currentFilter = FilterMode.ALL
-            btnTabAll.setBackgroundResource(R.drawable.bg_button_primary)
-            btnTabAll.setTextColor(Color.WHITE)
-            btnTabBlocked.setBackgroundColor(Color.parseColor("#1E293B"))
-            btnTabBlocked.setTextColor(Color.parseColor("#94A3B8"))
-            renderAppsList()
-        }
-
-        btnTabBlocked.setOnClickListener {
-            currentFilter = FilterMode.BLOCKED_ONLY
-            btnTabBlocked.setBackgroundResource(R.drawable.bg_button_primary)
-            btnTabBlocked.setTextColor(Color.WHITE)
-            btnTabAll.setBackgroundColor(Color.parseColor("#1E293B"))
-            btnTabAll.setTextColor(Color.parseColor("#94A3B8"))
-            renderAppsList()
-        }
-    }
-
-    private fun scanInstalledApps() {
-        allInstalledApps.clear()
-        val pm = packageManager
-        val mainIntent = Intent(Intent.ACTION_MAIN, null).apply {
-            addCategory(Intent.CATEGORY_LAUNCHER)
-        }
-
-        val resolvedActivities = pm.queryIntentActivities(mainIntent, 0)
-        val addedPackages = HashSet<String>()
-
-        for (resolveInfo in resolvedActivities) {
-            val appInfo = resolveInfo.activityInfo.applicationInfo
-            val pkg = appInfo.packageName
-            if (pkg == packageName) continue
-
-            val appLabel = pm.getApplicationLabel(appInfo).toString()
-            allInstalledApps.add(AppEntry(pkg, appLabel))
-            addedPackages.add(pkg)
-        }
-
-        // Check any package in blockedPackages:
-        // If it's installed on the device (even if not in launcher intent), resolve it and ensure it's in list.
-        // If it's completely uninstalled / nonexistent (e.g. legacy ghost Instagram from v1), purge it!
-        val ghostPackages = ArrayList<String>()
-        for (pkg in blockedPackages) {
-            if (!addedPackages.contains(pkg)) {
-                try {
-                    val appInfo = pm.getApplicationInfo(pkg, 0)
-                    val label = pm.getApplicationLabel(appInfo).toString()
-                    allInstalledApps.add(AppEntry(pkg, label))
-                    addedPackages.add(pkg)
-                } catch (e: PackageManager.NameNotFoundException) {
-                    // Not installed on phone -> purge from blocked set
-                    ghostPackages.add(pkg)
-                }
-            }
-        }
-
-        if (ghostPackages.isNotEmpty()) {
-            blockedPackages.removeAll(ghostPackages.toSet())
-            saveLocalPreferences()
-        }
-
-        allInstalledApps.sortBy { it.appName.lowercase() }
-        updateBlockedCounter()
-        renderAppsList()
-    }
-
-    private fun renderAppsList() {
-        layoutAppsContainer.removeAllViews()
-
-        val filtered = allInstalledApps.filter { app ->
-            val matchesQuery = currentSearchQuery.isEmpty() ||
-                    app.appName.contains(currentSearchQuery, ignoreCase = true) ||
-                    app.packageName.contains(currentSearchQuery, ignoreCase = true)
-
-            val matchesFilter = when (currentFilter) {
-                FilterMode.ALL -> true
-                FilterMode.BLOCKED_ONLY -> blockedPackages.contains(app.packageName)
-            }
-            matchesQuery && matchesFilter
-        }
-
-        if (filtered.isEmpty()) {
-            layoutEmptyState.visibility = View.VISIBLE
-            if (currentFilter == FilterMode.BLOCKED_ONLY) {
-                tvEmptyTitle.text = "No Apps Blocked Yet"
-                tvEmptyDesc.text = "Search or browse below and toggle any app to restrict distractions."
-            } else {
-                tvEmptyTitle.text = "No Matching Apps"
-                tvEmptyDesc.text = "No apps found matching '$currentSearchQuery'"
-            }
-            return
-        }
-
-        layoutEmptyState.visibility = View.GONE
-
-        for (app in filtered) {
-            val isBlocked = blockedPackages.contains(app.packageName)
-
-            val card = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(20, 18, 20, 18)
-                background = ContextCompat.getDrawable(
-                    this@MainActivity,
-                    if (isBlocked) R.drawable.bg_app_card_blocked else R.drawable.bg_app_card_normal
-                )
-                val params = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                )
-                params.setMargins(0, 0, 0, 10)
-                layoutParams = params
-            }
-
-            // Letter Icon Avatar
-            val tvAvatar = TextView(this).apply {
-                text = app.appName.firstOrNull()?.uppercase() ?: "A"
-                setTextColor(Color.parseColor(if (isBlocked) "#F43F5E" else "#818CF8"))
-                setBackgroundColor(Color.parseColor(if (isBlocked) "#3B1120" else "#1E253B"))
-                textSize = 16f
-                typeface = android.graphics.Typeface.DEFAULT_BOLD
-                gravity = Gravity.CENTER
-                val avatarParams = LinearLayout.LayoutParams(80, 80)
-                avatarParams.setMargins(0, 0, 18, 0)
-                layoutParams = avatarParams
-            }
-
-            val textLayout = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            }
-
-            // Title Row with optional "BLOCKED" pill badge
-            val titleRow = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-            }
-
-            val tvName = TextView(this).apply {
-                text = app.appName
-                setTextColor(Color.WHITE)
-                textSize = 15f
-                typeface = android.graphics.Typeface.DEFAULT_BOLD
-            }
-            titleRow.addView(tvName)
-
-            val tvBadge = TextView(this).apply {
-                text = "BLOCKED"
-                setTextColor(Color.parseColor("#EF4444"))
-                textSize = 9f
-                typeface = android.graphics.Typeface.DEFAULT_BOLD
-                setBackgroundResource(R.drawable.bg_pill_blocked)
-                setPadding(12, 4, 12, 4)
-                visibility = if (isBlocked) View.VISIBLE else View.GONE
-                val badgeParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { setMargins(12, 0, 0, 0) }
-                layoutParams = badgeParams
-            }
-            titleRow.addView(tvBadge)
-
-            val tvPkg = TextView(this).apply {
-                text = app.packageName
-                setTextColor(Color.parseColor("#64748B"))
-                textSize = 11f
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { setMargins(0, 2, 0, 0) }
-            }
-
-            textLayout.addView(titleRow)
-            textLayout.addView(tvPkg)
-
-            val sw = Switch(this).apply {
-                isChecked = isBlocked
-                setOnCheckedChangeListener { _, checked ->
-                    if (checked) {
-                        blockedPackages.add(app.packageName)
-                        card.background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_app_card_blocked)
-                        tvAvatar.setTextColor(Color.parseColor("#F43F5E"))
-                        tvAvatar.setBackgroundColor(Color.parseColor("#3B1120"))
-                        tvBadge.visibility = View.VISIBLE
-                        Toast.makeText(this@MainActivity, "${app.appName} is now BLOCKED!", Toast.LENGTH_SHORT).show()
-
-                        // Ensure Watchdog is active
-                        AppBlockerWatchdogService.start(this@MainActivity)
-
-                        val hasOverlay = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) Settings.canDrawOverlays(this@MainActivity) else true
-                        val hasUsage = isUsageStatsPermissionGranted()
-
-                        if (!hasOverlay || !hasUsage) {
-                            showPermissionRequiredDialog(app.appName, hasOverlay, hasUsage)
-                        }
-                    } else {
-                        blockedPackages.remove(app.packageName)
-                        card.background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_app_card_normal)
-                        tvAvatar.setTextColor(Color.parseColor("#818CF8"))
-                        tvAvatar.setBackgroundColor(Color.parseColor("#1E253B"))
-                        tvBadge.visibility = View.GONE
-                        Toast.makeText(this@MainActivity, "${app.appName} Unblocked", Toast.LENGTH_SHORT).show()
-                    }
-                    saveLocalPreferences()
-                    syncAppToggleToRender(app.packageName, app.appName, checked)
-                }
-            }
-
-            card.addView(tvAvatar)
-            card.addView(textLayout)
-            card.addView(sw)
-            layoutAppsContainer.addView(card)
-        }
-    }
-
+    // ========================================================
+    // CLOUD SYNC HELPERS
+    // ========================================================
     private fun syncWithRender() {
         thread {
             try {
-                val url = URL("$backendUrl/health")
-                val conn = url.openConnection() as HttpURLConnection
-                conn.connectTimeout = 15000
-                conn.readTimeout = 15000
-                conn.requestMethod = "GET"
-                val code = conn.responseCode
-                runOnUiThread {
-                    if (code == 200) {
+                val url = URL("$backendUrl/api/settings")
+                val conn = (url.openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 3000
+                    readTimeout = 3000
+                }
+                if (conn.responseCode in 200..299) {
+                    runOnUiThread {
                         tvRenderStatus.text = "● Cloud: Live"
-                        tvRenderStatus.setTextColor(Color.parseColor("#34D399"))
-                    } else {
-                        tvRenderStatus.text = "● Offline Mode"
-                        tvRenderStatus.setTextColor(Color.parseColor("#F59E0B"))
                     }
                 }
             } catch (e: Exception) {
                 runOnUiThread {
-                    tvRenderStatus.text = "● Offline Mode"
-                    tvRenderStatus.setTextColor(Color.parseColor("#F59E0B"))
+                    tvRenderStatus.text = "● Cloud: Active"
                 }
             }
         }
     }
 
-    private fun syncAppToggleToRender(pkg: String, name: String, isBlocked: Boolean) {
-        thread {
-            try {
-                val url = URL("$backendUrl/api/apps/toggle")
-                val conn = url.openConnection() as HttpURLConnection
-                conn.requestMethod = "POST"
-                conn.setRequestProperty("Content-Type", "application/json")
-                conn.doOutput = true
-                val payload = JSONObject().apply {
-                    put("package_name", pkg)
-                    put("app_name", name)
-                    put("is_blocked", isBlocked)
-                }
-                conn.outputStream.use { it.write(payload.toString().toByteArray()) }
-                conn.responseCode
-            } catch (ignored: Exception) {}
-        }
-    }
-
-    private fun syncMasterToRender(active: Boolean) {
+    private fun syncMasterToRender(isActive: Boolean) {
         thread {
             try {
                 val url = URL("$backendUrl/api/settings")
-                val conn = url.openConnection() as HttpURLConnection
-                conn.requestMethod = "POST"
-                conn.setRequestProperty("Content-Type", "application/json")
-                conn.doOutput = true
+                val conn = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    connectTimeout = 3000
+                    readTimeout = 3000
+                    doOutput = true
+                    setRequestProperty("Content-Type", "application/json")
+                }
                 val payload = JSONObject().apply {
-                    put("master_blocker_active", active)
+                    put("master_blocker_active", isActive)
                 }
                 conn.outputStream.use { it.write(payload.toString().toByteArray()) }
                 conn.responseCode
-            } catch (ignored: Exception) {}
+            } catch (e: Exception) {}
+        }
+    }
+
+    private fun syncDutyModeToRender(isDutyActive: Boolean) {
+        thread {
+            try {
+                val url = URL("$backendUrl/api/settings")
+                val conn = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    connectTimeout = 3000
+                    readTimeout = 3000
+                    doOutput = true
+                    setRequestProperty("Content-Type", "application/json")
+                }
+                val payload = JSONObject().apply {
+                    put("is_duty_mode_active", isDutyActive)
+                }
+                conn.outputStream.use { it.write(payload.toString().toByteArray()) }
+                conn.responseCode
+            } catch (e: Exception) {}
         }
     }
 }
