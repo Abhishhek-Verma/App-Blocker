@@ -12,7 +12,7 @@
         android:layout_height="wrap_content"
         android:layout_gravity="center"
         android:layout_marginHorizontal="28dp"
-        android:background="@drawable/bg_card_white"
+        android:background="@drawable/bg_card_adaptive"
         android:orientation="vertical"
         android:padding="28dp">
 
@@ -25,29 +25,22 @@
             android:gravity="center_vertical"
             android:layout_marginBottom="16dp">
 
-            <FrameLayout
-                android:layout_width="44dp"
-                android:layout_height="44dp"
-                android:background="@drawable/bg_logo_container">
-
-                <ImageView
-                    android:layout_width="30dp"
-                    android:layout_height="30dp"
-                    android:layout_gravity="center"
-                    android:src="@drawable/ic_schoolmini_logo"
-                    android:contentDescription="SchoolMini Logo"
-                    android:scaleType="fitCenter" />
-            </FrameLayout>
+            <ImageView
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:src="@drawable/ic_schoolmini_logo"
+                android:contentDescription="SchoolMini Logo"
+                android:scaleType="fitCenter" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="12dp"
-                android:background="#FEF2F2"
+                android:background="@drawable/bg_duty_lock_pill"
                 android:paddingHorizontal="10dp"
                 android:paddingVertical="5dp"
                 android:text="RESTRICTED APP"
-                android:textColor="#DC2626"
+                android:textColor="@color/duty_lock_pill_text"
                 android:textSize="11sp"
                 android:textStyle="bold"
                 android:letterSpacing="0.05" />
@@ -60,7 +53,7 @@
             android:layout_height="wrap_content"
             android:layout_gravity="center_horizontal"
             android:text="App Blocked"
-            android:textColor="#0F172A"
+            android:textColor="@color/text_primary"
             android:textSize="22sp"
             android:textStyle="bold" />
 
@@ -72,7 +65,7 @@
             android:layout_gravity="center_horizontal"
             android:layout_marginTop="4dp"
             android:text="com.example.app"
-            android:textColor="#64748B"
+            android:textColor="@color/text_muted"
             android:textSize="12sp" />
 
         <!-- Explanation Message -->
@@ -83,7 +76,7 @@
             android:layout_marginTop="16dp"
             android:gravity="center"
             android:text="SchoolMini has restricted this app during school hours.\nStay focused on your education!"
-            android:textColor="#334155"
+            android:textColor="@color/text_secondary"
             android:textSize="14sp"
             android:lineSpacingExtra="3dp" />
 
@@ -93,7 +86,7 @@
             android:layout_width="match_parent"
             android:layout_height="50dp"
             android:layout_marginTop="24dp"
-            android:background="@drawable/bg_button_brand"
+            android:background="@drawable/bg_button_gradient_blue"
             android:text="Return to SchoolMini Focus"
             android:textColor="#FFFFFF"
             android:textSize="14sp"

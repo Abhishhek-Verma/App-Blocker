@@ -7,6 +7,7 @@ import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.graphics.Color
 import android.net.Uri
 import android.os.Build
@@ -67,7 +68,10 @@ class MainActivity : Activity() {
     private lateinit var tvDutyClockTime: TextView
     private lateinit var tvDutyClockDate: TextView
     private lateinit var tvDutyCountdown: TextView
-    private lateinit var btnDutyTurnOffBottom: Button
+    private var tvDutyCountdownTitle: TextView? = null
+    private var tvDutyCountdownSession: TextView? = null
+    private lateinit var btnDutyTurnOffBottom: View
+    private var tvDutyTurnOffText: TextView? = null
     private lateinit var btnLaunchPhone: View
     private lateinit var btnLaunchMessages: View
     private lateinit var btnLaunchChrome: View
@@ -77,6 +81,8 @@ class MainActivity : Activity() {
 
     // 3. Dashboard Screen Elements
     private lateinit var tvDashWelcome: TextView
+    private var tvDashUserName: TextView? = null
+    private var tvDashUserEmail: TextView? = null
     private lateinit var btnDashLogout: Button
     private lateinit var tvRenderStatus: TextView
     private lateinit var btnScanDutyQr: Button
@@ -106,6 +112,7 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        applyThemeMode()
         bindViews()
         setupAuthActions()
         setupDutyModeActions()
@@ -125,6 +132,7 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         isLaunchingAllowedApp = false
+        applyThemeMode()
         checkPermissions()
         refreshScreenState()
 
@@ -141,6 +149,41 @@ class MainActivity : Activity() {
     override fun onPause() {
         super.onPause()
         clockHandler.removeCallbacks(clockRunnable)
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        applyThemeMode()
+        refreshScreenState()
+    }
+
+    private fun applyThemeMode() {
+        val isNight = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        updateSystemBarsTheme(isNight)
+    }
+
+    private fun updateSystemBarsTheme(isNight: Boolean) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val controller = window.insetsController ?: return
+            if (isNight) {
+                controller.setSystemBarsAppearance(0, WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS)
+            } else {
+                controller.setSystemBarsAppearance(
+                    WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS,
+                    WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+                )
+            }
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            @Suppress("DEPRECATION")
+            var flags = window.decorView.systemUiVisibility
+            flags = if (isNight) {
+                flags and View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv()
+            } else {
+                flags or View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+            }
+            @Suppress("DEPRECATION")
+            window.decorView.systemUiVisibility = flags
+        }
     }
 
     private fun bindViews() {
@@ -166,7 +209,10 @@ class MainActivity : Activity() {
         tvDutyClockTime = findViewById(R.id.tv_duty_clock_time)
         tvDutyClockDate = findViewById(R.id.tv_duty_clock_date)
         tvDutyCountdown = findViewById(R.id.tv_duty_countdown)
+        tvDutyCountdownTitle = findViewById(R.id.tv_duty_countdown_title)
+        tvDutyCountdownSession = findViewById(R.id.tv_duty_countdown_session)
         btnDutyTurnOffBottom = findViewById(R.id.btn_duty_turn_off_bottom)
+        tvDutyTurnOffText = findViewById(R.id.tv_duty_turn_off_text)
 
         btnLaunchPhone = findViewById(R.id.btn_launch_phone)
         btnLaunchMessages = findViewById(R.id.btn_launch_messages)
@@ -177,6 +223,8 @@ class MainActivity : Activity() {
 
         // Dashboard
         tvDashWelcome = findViewById(R.id.tv_dash_welcome)
+        tvDashUserName = findViewById(R.id.tv_dash_user_name)
+        tvDashUserEmail = findViewById(R.id.tv_dash_user_email)
         btnDashLogout = findViewById(R.id.btn_dash_logout)
         tvRenderStatus = findViewById(R.id.tv_render_status)
         btnScanDutyQr = findViewById(R.id.btn_scan_duty_qr)
@@ -223,6 +271,8 @@ class MainActivity : Activity() {
             layoutDashboardScreen.visibility = View.VISIBLE
             val displayTitle = if (!name.isNullOrEmpty()) "$name • $email" else email
             tvDashWelcome.text = "$displayTitle • Protected"
+            tvDashUserName?.text = if (!name.isNullOrEmpty()) name else "Abhishek Verma"
+            tvDashUserEmail?.text = if (!email.isNullOrEmpty()) email else "abhishek.kiet@gmail.com"
         }
     }
 
@@ -585,6 +635,10 @@ class MainActivity : Activity() {
             confirmExitDutyMode()
         }
         btnDutyPowerToggle.setOnClickListener(exitDutyListener)
+        findViewById<View>(R.id.btn_duty_power_toggle_layout)?.setOnClickListener(exitDutyListener)
+        findViewById<View>(R.id.tv_duty_locked_indicator_layout)?.setOnClickListener {
+            Toast.makeText(this, "🔒 Duty Lock Active. Device is guarded.", Toast.LENGTH_SHORT).show()
+        }
         btnDutyTurnOffBottom.setOnClickListener(exitDutyListener)
 
         // 1. Phone App Shortcut
@@ -712,20 +766,28 @@ class MainActivity : Activity() {
             val remainingSeconds = endSeconds - currentSeconds
             val h = remainingSeconds / 3600
             val m = (remainingSeconds % 3600) / 60
-            tvDutyCountdown.text = "School session ends in ${h} h ${m} min (09:00 - 15:00)"
-            tvDutyCountdown.setTextColor(Color.parseColor("#9CA3AF"))
-            btnDutyTurnOffBottom.text = "Turn Off Duty Mode (Session Active)"
+            tvDutyCountdownTitle?.text = "School ends in"
+            tvDutyCountdown.text = "${h} h ${m} min"
+            tvDutyCountdownSession?.text = "Session: 09:00 - 15:00"
+            tvDutyCountdown.setTextColor(Color.parseColor("#2DD4BF"))
+            tvDutyTurnOffText?.text = "TURN OFF DUTY MODE (ACTIVE)"
         } else if (currentSeconds < startSeconds) {
             val untilStart = startSeconds - currentSeconds
             val h = untilStart / 3600
             val m = (untilStart % 3600) / 60
-            tvDutyCountdown.text = "School starts in ${h} h ${m} min • Session: 09:00 - 15:00"
-            tvDutyCountdown.setTextColor(Color.parseColor("#53A7E1"))
-            btnDutyTurnOffBottom.text = "Turn Off Duty Mode"
+            tvDutyCountdownTitle?.text = "School starts in"
+            tvDutyCountdown.text = "${h} h ${m} min"
+            tvDutyCountdownSession?.text = "Session: 09:00 - 15:00"
+            tvDutyCountdown.setTextColor(Color.parseColor("#2DD4BF"))
+            tvDutyTurnOffText?.text = "TURN OFF DUTY MODE"
         } else {
-            tvDutyCountdown.text = "School time is over • Session completed (09:00 - 15:00)\nDuty Mode can now be turned off"
+            val h = 0
+            val m = 0
+            tvDutyCountdownTitle?.text = "School time is over"
+            tvDutyCountdown.text = "Session completed"
+            tvDutyCountdownSession?.text = "Session: 09:00 - 15:00"
             tvDutyCountdown.setTextColor(Color.parseColor("#34D399"))
-            btnDutyTurnOffBottom.text = "Turn Off Duty Mode (School Over)"
+            tvDutyTurnOffText?.text = "TURN OFF DUTY MODE (OVER)"
         }
     }
 
@@ -772,18 +834,19 @@ class MainActivity : Activity() {
     // ========================================================
     private fun setupDashboardActions() {
         btnDashLogout.setOnClickListener { performLogout() }
+        findViewById<View>(R.id.btn_dash_logout_container)?.setOnClickListener { performLogout() }
 
-        btnScanDutyQr.setOnClickListener {
-            startQrScanner()
-        }
+        val scanListener = View.OnClickListener { startQrScanner() }
+        btnScanDutyQr.setOnClickListener(scanListener)
+        findViewById<View>(R.id.btn_scan_duty_qr_layout)?.setOnClickListener(scanListener)
 
-        btnEnterCodeDialog.setOnClickListener {
-            showManualCodeDialog()
-        }
+        val codeListener = View.OnClickListener { showManualCodeDialog() }
+        btnEnterCodeDialog.setOnClickListener(codeListener)
+        findViewById<View>(R.id.btn_enter_code_dialog_layout)?.setOnClickListener(codeListener)
 
-        btnQuickToggleDuty.setOnClickListener {
-            enableDutyMode()
-        }
+        val quickArmListener = View.OnClickListener { enableDutyMode() }
+        btnQuickToggleDuty.setOnClickListener(quickArmListener)
+        findViewById<View>(R.id.btn_quick_toggle_duty_layout)?.setOnClickListener(quickArmListener)
     }
 
     private fun startQrScanner() {
@@ -902,25 +965,25 @@ class MainActivity : Activity() {
 
         if (isOverlayGranted) {
             pillOverlay.text = "Overlay: ON"
-            pillOverlay.setBackgroundColor(Color.parseColor("#ECFDF5"))
-            pillOverlay.setTextColor(Color.parseColor("#059669"))
+            pillOverlay.setBackgroundResource(R.drawable.bg_pill_cloud_live)
+            pillOverlay.setTextColor(ContextCompat.getColor(this, R.color.master_status_active))
             btnGrantOverlay.visibility = View.GONE
         } else {
             pillOverlay.text = "Overlay: OFF"
-            pillOverlay.setBackgroundColor(Color.parseColor("#FEF2F2"))
-            pillOverlay.setTextColor(Color.parseColor("#DC2626"))
+            pillOverlay.setBackgroundResource(R.drawable.bg_duty_lock_pill)
+            pillOverlay.setTextColor(ContextCompat.getColor(this, R.color.duty_lock_pill_text))
             btnGrantOverlay.visibility = View.VISIBLE
         }
 
         if (isUsageGranted) {
             pillUsage.text = "Usage Engine: ON"
-            pillUsage.setBackgroundColor(Color.parseColor("#ECFDF5"))
-            pillUsage.setTextColor(Color.parseColor("#059669"))
+            pillUsage.setBackgroundResource(R.drawable.bg_pill_cloud_live)
+            pillUsage.setTextColor(ContextCompat.getColor(this, R.color.master_status_active))
             btnGrantUsage.visibility = View.GONE
         } else {
             pillUsage.text = "Usage Engine: OFF"
-            pillUsage.setBackgroundColor(Color.parseColor("#FEF2F2"))
-            pillUsage.setTextColor(Color.parseColor("#DC2626"))
+            pillUsage.setBackgroundResource(R.drawable.bg_duty_lock_pill)
+            pillUsage.setTextColor(ContextCompat.getColor(this, R.color.duty_lock_pill_text))
             btnGrantUsage.visibility = View.VISIBLE
         }
 
@@ -970,10 +1033,10 @@ class MainActivity : Activity() {
     private fun updateMasterText(active: Boolean) {
         if (active) {
             tvShieldStatus.text = "ACTIVE & GUARDING"
-            tvShieldStatus.setTextColor(Color.parseColor("#059669"))
+            tvShieldStatus.setTextColor(ContextCompat.getColor(this, R.color.master_status_active))
         } else {
             tvShieldStatus.text = "SHIELD DISABLED"
-            tvShieldStatus.setTextColor(Color.parseColor("#94A3B8"))
+            tvShieldStatus.setTextColor(ContextCompat.getColor(this, R.color.text_muted))
         }
     }
 
