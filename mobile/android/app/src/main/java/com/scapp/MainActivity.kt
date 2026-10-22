@@ -3,6 +3,7 @@ package com.scapp
 import android.app.Activity
 import android.app.AlertDialog
 import android.app.AppOpsManager
+import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -18,7 +19,7 @@ import android.view.Gravity
 import android.view.View
 import android.widget.*
 import androidx.core.content.ContextCompat
-import com.scapp.blocker.AppBlockerAccessibilityService
+import com.scapp.blocker.AppBlockerConfig
 import com.scapp.blocker.AppBlockerWatchdogService
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -28,9 +29,9 @@ import kotlin.concurrent.thread
 class MainActivity : Activity() {
 
     private val backendUrl = "https://app-blocker.onrender.com"
-    private val prefsName = AppBlockerAccessibilityService.PREFS_NAME
-    private val keyBlocked = AppBlockerAccessibilityService.KEY_BLOCKED_PACKAGES
-    private val keyMaster = AppBlockerAccessibilityService.KEY_MASTER_ACTIVE
+    private val prefsName = AppBlockerConfig.PREFS_NAME
+    private val keyBlocked = AppBlockerConfig.KEY_BLOCKED_PACKAGES
+    private val keyMaster = AppBlockerConfig.KEY_MASTER_ACTIVE
 
     private lateinit var swMasterShield: Switch
     private lateinit var tvShieldStatus: TextView
@@ -46,17 +47,10 @@ class MainActivity : Activity() {
     private lateinit var layoutPermissionsArmed: View
     private lateinit var layoutPermissionsSetup: View
     private lateinit var btnTogglePermissionsDetails: Button
-    private lateinit var pillAccessibility: TextView
     private lateinit var pillOverlay: TextView
     private lateinit var pillUsage: TextView
-    private lateinit var layoutRestrictedGuide: View
-    private lateinit var btnGrantAccessibility: Button
     private lateinit var btnGrantOverlay: Button
     private lateinit var btnGrantUsage: Button
-    private lateinit var btnGrantDnd: Button
-
-    private lateinit var tvDutyModeStatus: TextView
-    private lateinit var btnToggleDutyMode: Button
 
     private lateinit var layoutEmptyState: View
     private lateinit var tvEmptyTitle: TextView
@@ -90,17 +84,10 @@ class MainActivity : Activity() {
         layoutPermissionsArmed = findViewById(R.id.layout_permissions_armed)
         layoutPermissionsSetup = findViewById(R.id.layout_permissions_setup)
         btnTogglePermissionsDetails = findViewById(R.id.btn_toggle_permissions_details)
-        pillAccessibility = findViewById(R.id.pill_accessibility)
         pillOverlay = findViewById(R.id.pill_overlay)
         pillUsage = findViewById(R.id.pill_usage)
-        layoutRestrictedGuide = findViewById(R.id.layout_restricted_setting_guide)
-        btnGrantAccessibility = findViewById(R.id.btn_grant_accessibility)
         btnGrantOverlay = findViewById(R.id.btn_grant_overlay)
         btnGrantUsage = findViewById(R.id.btn_grant_usage)
-        btnGrantDnd = findViewById(R.id.btn_grant_dnd)
-
-        tvDutyModeStatus = findViewById(R.id.tv_duty_mode_status)
-        btnToggleDutyMode = findViewById(R.id.btn_toggle_duty_mode)
 
         layoutEmptyState = findViewById(R.id.layout_empty_state)
         tvEmptyTitle = findViewById(R.id.tv_empty_title)
@@ -117,7 +104,6 @@ class MainActivity : Activity() {
 
         setupPermissionButtons()
         setupMasterToggle()
-        setupDutyMode()
         setupSearchAndTabs()
 
         loadLocalPreferences()
@@ -132,51 +118,6 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         checkPermissions()
-        val prefs = getSharedPreferences(prefsName, Context.MODE_PRIVATE)
-        val isDuty = prefs.getBoolean(AppBlockerAccessibilityService.KEY_DUTY_MODE_ACTIVE, false)
-        updateDutyModeUi(isDuty)
-    }
-
-    private fun setupDutyMode() {
-        val prefs = getSharedPreferences(prefsName, Context.MODE_PRIVATE)
-        var isDuty = prefs.getBoolean(AppBlockerAccessibilityService.KEY_DUTY_MODE_ACTIVE, false)
-        updateDutyModeUi(isDuty)
-
-        btnToggleDutyMode.setOnClickListener {
-            isDuty = !isDuty
-            prefs.edit().putBoolean(AppBlockerAccessibilityService.KEY_DUTY_MODE_ACTIVE, isDuty).apply()
-            updateDutyModeUi(isDuty)
-
-            val notifManager = getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && notifManager != null) {
-                if (notifManager.isNotificationPolicyAccessGranted) {
-                    if (isDuty) {
-                        notifManager.setInterruptionFilter(android.app.NotificationManager.INTERRUPTION_FILTER_PRIORITY)
-                        Toast.makeText(this, "🧑‍🏫 Duty Mode Active: Calls & messages silenced", Toast.LENGTH_SHORT).show()
-                    } else {
-                        notifManager.setInterruptionFilter(android.app.NotificationManager.INTERRUPTION_FILTER_ALL)
-                        Toast.makeText(this, "Duty Mode Off: Normal sound restored", Toast.LENGTH_SHORT).show()
-                    }
-                } else if (isDuty) {
-                    Toast.makeText(this, "Tip: Grant DND permission to silence incoming calls during class", Toast.LENGTH_LONG).show()
-                    startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
-                }
-            }
-        }
-    }
-
-    private fun updateDutyModeUi(active: Boolean) {
-        if (active) {
-            tvDutyModeStatus.text = "ACTIVE • Class in Session"
-            tvDutyModeStatus.setTextColor(Color.parseColor("#34D399"))
-            btnToggleDutyMode.text = "⏹ End Teacher Duty Mode"
-            btnToggleDutyMode.setBackgroundColor(Color.parseColor("#DC2626"))
-        } else {
-            tvDutyModeStatus.text = "Standby • Ready for Class"
-            tvDutyModeStatus.setTextColor(Color.parseColor("#94A3B8"))
-            btnToggleDutyMode.text = "🎯 Start Teacher Duty Mode"
-            btnToggleDutyMode.setBackgroundResource(R.drawable.bg_button_primary)
-        }
     }
 
     private fun setupPermissionButtons() {
@@ -186,72 +127,40 @@ class MainActivity : Activity() {
             btnTogglePermissionsDetails.text = if (isPermissionsDetailsExpanded) "Hide ▴" else "Status ▾"
         }
 
-        findViewById<Button>(R.id.btn_open_app_info).setOnClickListener {
-            AlertDialog.Builder(this)
-                .setTitle("Unlock Restricted Setting (MIUI / Android 13+)")
-                .setMessage("Android locks Accessibility for sideloaded APKs.\n\nTo unlock:\n1. Tap 'OPEN SETTINGS' below\n2. On the App Info page, tap the 3 DOTS (⋮) at the top-right corner\n3. Tap 'Allow restricted settings'\n4. Confirm your screen lock / fingerprint\n5. Return here & tap 'Accessibility'!")
-                .setPositiveButton("OPEN SETTINGS") { _, _ ->
-                    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                        data = Uri.fromParts("package", packageName, null)
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    }
-                    startActivity(intent)
-                }
-                .setNegativeButton("Cancel", null)
-                .show()
-        }
-
-        btnGrantAccessibility.setOnClickListener {
-            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-            Toast.makeText(this, "Find 'FocusShield' under Downloaded apps and toggle it ON", Toast.LENGTH_SHORT).show()
-        }
-
         btnGrantOverlay.setOnClickListener {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+                try {
+                    startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+                } catch (e: Exception) {
+                    startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION))
+                }
                 Toast.makeText(this, "Toggle 'Allow display over other apps' to ON", Toast.LENGTH_SHORT).show()
             }
         }
 
         btnGrantUsage.setOnClickListener {
-            startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
-            Toast.makeText(this, "Find 'FocusShield' and toggle 'Permit usage access' ON", Toast.LENGTH_SHORT).show()
-        }
-
-        btnGrantDnd.setOnClickListener {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
-                Toast.makeText(this, "Find 'FocusShield' and allow Do Not Disturb access", Toast.LENGTH_SHORT).show()
+            try {
+                val intent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS).apply {
+                    data = Uri.parse("package:$packageName")
+                }
+                startActivity(intent)
+            } catch (e: Exception) {
+                startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
             }
+            Toast.makeText(this, "Find 'FocusShield' and toggle 'Permit usage access' ON", Toast.LENGTH_SHORT).show()
         }
     }
 
     private fun checkPermissions() {
-        // 1. Check Accessibility
-        val expectedService = "$packageName/${AppBlockerAccessibilityService::class.java.canonicalName}"
-        val enabledServices = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: ""
-        val isAccessGranted = enabledServices.contains(expectedService) || AppBlockerAccessibilityService.isServiceRunning
-
-        // 2. Check Overlay
+        // 1. Check Overlay
         val isOverlayGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             Settings.canDrawOverlays(this)
         } else {
             true
         }
 
-        // 3. Check Usage Access
+        // 2. Check Usage Access
         val isUsageGranted = isUsageStatsPermissionGranted()
-
-        // Update Pill Texts & Colors
-        if (isAccessGranted) {
-            pillAccessibility.text = "Accessibility: ON"
-            pillAccessibility.setBackgroundColor(Color.parseColor("#064E3B"))
-            pillAccessibility.setTextColor(Color.parseColor("#6EE7B7"))
-        } else {
-            pillAccessibility.text = "Accessibility: OFF"
-            pillAccessibility.setBackgroundColor(Color.parseColor("#371D1D"))
-            pillAccessibility.setTextColor(Color.parseColor("#FCA5A5"))
-        }
 
         if (isOverlayGranted) {
             pillOverlay.text = "Overlay: ON"
@@ -264,53 +173,31 @@ class MainActivity : Activity() {
         }
 
         if (isUsageGranted) {
-            pillUsage.text = "Watchdog: ON"
+            pillUsage.text = "Usage Engine: ON"
             pillUsage.setBackgroundColor(Color.parseColor("#064E3B"))
             pillUsage.setTextColor(Color.parseColor("#6EE7B7"))
         } else {
-            pillUsage.text = "Watchdog: OFF"
+            pillUsage.text = "Usage Engine: OFF"
             pillUsage.setBackgroundColor(Color.parseColor("#371D1D"))
             pillUsage.setTextColor(Color.parseColor("#FCA5A5"))
         }
 
         // SMART HIDING: Hide buttons for permissions already granted!
-        // When Overlay is ON -> NO SHOW!
         btnGrantOverlay.visibility = if (isOverlayGranted) View.GONE else View.VISIBLE
-
-        // When Accessibility is ON -> NO SHOW!
-        btnGrantAccessibility.visibility = if (isAccessGranted) View.GONE else View.VISIBLE
-        layoutRestrictedGuide.visibility = if (isAccessGranted) View.GONE else View.VISIBLE
-
-        // When Usage is ON -> NO SHOW!
         btnGrantUsage.visibility = if (isUsageGranted) View.GONE else View.VISIBLE
 
-        // When DND is ON -> NO SHOW!
-        val notifManager = getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
-        val isDndGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && notifManager != null) {
-            notifManager.isNotificationPolicyAccessGranted
-        } else {
-            true
-        }
-        btnGrantDnd.visibility = if (isDndGranted) View.GONE else View.VISIBLE
-
-        // Determine protection readiness:
-        // System is armed if Overlay is granted AND at least one detection engine is operational
-        val isProtected = isOverlayGranted && (isAccessGranted || isUsageGranted)
+        // System is armed if Overlay is granted AND Usage engine is operational
+        val isProtected = isOverlayGranted && isUsageGranted
 
         if (isProtected) {
             layoutPermissionsArmed.visibility = View.VISIBLE
-            // When all needed permissions are done, hide the setup card completely!
             if (!isPermissionsDetailsExpanded) {
                 layoutPermissionsSetup.visibility = View.GONE
             }
-            tvStatEngine.text = if (isAccessGranted && isUsageGranted) {
-                "Dual Engine Active"
-            } else if (isAccessGranted) {
-                "Accessibility Active"
-            } else {
-                "Watchdog Active"
-            }
+            tvStatEngine.text = "Watchdog Guard Active"
             tvStatEngine.setTextColor(Color.parseColor("#34D399"))
+            // Ensure service is running as soon as permissions are ready
+            AppBlockerWatchdogService.start(this)
         } else {
             layoutPermissionsArmed.visibility = View.GONE
             layoutPermissionsSetup.visibility = View.VISIBLE
@@ -320,14 +207,57 @@ class MainActivity : Activity() {
     }
 
     private fun isUsageStatsPermissionGranted(): Boolean {
-        val appOps = getSystemService(Context.APP_OPS_SERVICE) as? AppOpsManager ?: return false
-        val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            appOps.unsafeCheckOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), packageName)
-        } else {
-            @Suppress("DEPRECATION")
-            appOps.checkOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), packageName)
+        val appOps = getSystemService(Context.APP_OPS_SERVICE) as? AppOpsManager
+        if (appOps != null) {
+            val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                appOps.unsafeCheckOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), packageName)
+            } else {
+                @Suppress("DEPRECATION")
+                appOps.checkOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), packageName)
+            }
+            if (mode == AppOpsManager.MODE_ALLOWED) {
+                return true
+            }
         }
-        return mode == AppOpsManager.MODE_ALLOWED
+
+        return try {
+            val usm = getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager
+            val now = System.currentTimeMillis()
+            val stats = usm?.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, now - 1000 * 60, now)
+            !stats.isNullOrEmpty()
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    private fun showPermissionRequiredDialog(appName: String, hasOverlay: Boolean, hasUsage: Boolean) {
+        val missingList = ArrayList<String>()
+        if (!hasOverlay) missingList.add("• Overlay (Display over other apps)")
+        if (!hasUsage) missingList.add("• Usage Access (Foreground Detection)")
+
+        AlertDialog.Builder(this)
+            .setTitle("Permissions Needed to Block")
+            .setMessage("To block $appName, FocusShield needs:\n\n${missingList.joinToString("\n")}\n\nTap 'GRANT NOW' to open settings.")
+            .setPositiveButton("GRANT NOW") { _, _ ->
+                if (!hasOverlay && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    try {
+                        startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+                    } catch (e: Exception) {
+                        startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION))
+                    }
+                } else if (!hasUsage) {
+                    try {
+                        val intent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS).apply {
+                            data = Uri.parse("package:$packageName")
+                        }
+                        startActivity(intent)
+                    } catch (e: Exception) {
+                        startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+                    }
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun loadLocalPreferences() {
@@ -583,16 +513,11 @@ class MainActivity : Activity() {
                         // Ensure Watchdog is active
                         AppBlockerWatchdogService.start(this@MainActivity)
 
-                        val hasAccessibility = AppBlockerAccessibilityService.isServiceRunning
                         val hasOverlay = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) Settings.canDrawOverlays(this@MainActivity) else true
                         val hasUsage = isUsageStatsPermissionGranted()
 
-                        if (!hasAccessibility && (!hasOverlay || !hasUsage)) {
-                            Toast.makeText(
-                                this@MainActivity,
-                                "⚠️ Tip: Enable 'Overlay' & 'Usage Access' above to enforce blocking immediately!",
-                                Toast.LENGTH_LONG
-                            ).show()
+                        if (!hasOverlay || !hasUsage) {
+                            showPermissionRequiredDialog(app.appName, hasOverlay, hasUsage)
                         }
                     } else {
                         blockedPackages.remove(app.packageName)

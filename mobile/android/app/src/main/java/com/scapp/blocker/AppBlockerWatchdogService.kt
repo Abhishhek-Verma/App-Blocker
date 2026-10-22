@@ -22,10 +22,14 @@ class AppBlockerWatchdogService : Service() {
 
         fun start(context: Context) {
             val intent = Intent(context, AppBlockerWatchdogService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error starting service", e)
             }
         }
 
@@ -41,8 +45,13 @@ class AppBlockerWatchdogService : Service() {
 
     private val pollRunnable = object : Runnable {
         override fun run() {
-            checkForegroundApp()
-            handler.postDelayed(this, 150) // High-frequency 150ms check
+            try {
+                checkForegroundApp()
+            } catch (t: Throwable) {
+                Log.e(TAG, "Watchdog tick error", t)
+            } finally {
+                handler.postDelayed(this, 120) // Fast 120ms polling interval
+            }
         }
     }
 
@@ -50,49 +59,41 @@ class AppBlockerWatchdogService : Service() {
         super.onCreate()
         isRunning = true
         createNotificationChannel()
-        startForeground(NOTIF_ID, createNotification())
+
+        // Robust Android 14+ FGS startup
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                startForeground(
+                    NOTIF_ID,
+                    createNotification(),
+                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                )
+            } else {
+                startForeground(NOTIF_ID, createNotification())
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "startForeground with type failed, attempting fallback", e)
+            try {
+                startForeground(NOTIF_ID, createNotification())
+            } catch (e2: Exception) {
+                Log.e(TAG, "Fallback startForeground failed", e2)
+            }
+        }
+
+        handler.removeCallbacks(pollRunnable)
         handler.post(pollRunnable)
         Log.i(TAG, "FocusShield Watchdog Service started.")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        handler.removeCallbacks(pollRunnable)
+        handler.post(pollRunnable)
         return START_STICKY
     }
 
-    private fun isDutyModeWhitelisted(pkg: String): Boolean {
-        if (pkg == applicationContext.packageName ||
-            pkg == "com.android.systemui" ||
-            pkg.contains("launcher", ignoreCase = true) ||
-            pkg.contains("inputmethod", ignoreCase = true) ||
-            pkg.contains("keyboard", ignoreCase = true)) {
-            return true
-        }
-        if (pkg == "com.openai.chatgpt" ||
-            pkg == "com.anthropic.claudebot" ||
-            pkg == "com.google.android.apps.bard" ||
-            pkg.contains("perplexity", ignoreCase = true) ||
-            pkg.contains("chatgpt", ignoreCase = true)) {
-            return true
-        }
-        if (pkg == "com.android.chrome" ||
-            pkg == "org.mozilla.firefox" ||
-            pkg == "com.brave.browser" ||
-            pkg == "com.microsoft.emmx") {
-            return true
-        }
-        if (pkg.contains("calculator", ignoreCase = true) ||
-            pkg == "com.google.android.calculator" ||
-            pkg == "com.sec.android.app.popupcalculator" ||
-            pkg == "com.miui.calculator" ||
-            pkg == "com.android.calculator2") {
-            return true
-        }
-        return false
-    }
-
     private fun checkForegroundApp() {
-        val prefs = getSharedPreferences(AppBlockerAccessibilityService.PREFS_NAME, Context.MODE_PRIVATE)
-        val isMaster = prefs.getBoolean(AppBlockerAccessibilityService.KEY_MASTER_ACTIVE, true)
+        val prefs = getSharedPreferences(AppBlockerConfig.PREFS_NAME, Context.MODE_PRIVATE)
+        val isMaster = prefs.getBoolean(AppBlockerConfig.KEY_MASTER_ACTIVE, true)
         if (!isMaster) return
 
         val foregroundPkg = getForegroundPackage() ?: return
@@ -100,55 +101,59 @@ class AppBlockerWatchdogService : Service() {
         // Skip own app, system UI, and launchers
         if (foregroundPkg == packageName ||
             foregroundPkg == "com.android.systemui" ||
-            foregroundPkg.contains("launcher", ignoreCase = true)) {
+            foregroundPkg.contains("launcher", ignoreCase = true) ||
+            foregroundPkg.contains("home", ignoreCase = true)) {
             return
         }
 
-        val isDutyModeActive = prefs.getBoolean(AppBlockerAccessibilityService.KEY_DUTY_MODE_ACTIVE, false)
-        val blockedSet = prefs.getStringSet(AppBlockerAccessibilityService.KEY_BLOCKED_PACKAGES, emptySet()) ?: emptySet()
+        val blockedSet = prefs.getStringSet(AppBlockerConfig.KEY_BLOCKED_PACKAGES, emptySet()) ?: emptySet()
+        if (!blockedSet.contains(foregroundPkg)) return
 
-        val shouldBlock: Boolean
-        val isDutyBlock: Boolean
+        val now = System.currentTimeMillis()
+        if (foregroundPkg == lastBlockedPackage && (now - lastBlockedTime) < 1000) {
+            return
+        }
+        lastBlockedPackage = foregroundPkg
+        lastBlockedTime = now
 
-        if (isDutyModeActive) {
-            if (isDutyModeWhitelisted(foregroundPkg)) return
-            shouldBlock = true
-            isDutyBlock = true
-        } else {
-            if (!blockedSet.contains(foregroundPkg)) return
-            shouldBlock = true
-            isDutyBlock = false
+        Log.w(TAG, "INTERCEPTED BLOCKED TARGET: $foregroundPkg. Enforcing firewall shield.")
+
+        // 1. Kick user back to Android Home Screen immediately
+        try {
+            val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+                addCategory(Intent.CATEGORY_HOME)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+            startActivity(homeIntent)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed launching home intent", e)
         }
 
-        if (shouldBlock) {
-            val now = System.currentTimeMillis()
-            if (foregroundPkg == lastBlockedPackage && (now - lastBlockedTime) < 1500) {
-                return
-            }
-            lastBlockedPackage = foregroundPkg
-            lastBlockedTime = now
+        // 2. Attach full-screen WindowManager overlay shield
+        try {
+            BlockOverlayManager.show(applicationContext, foregroundPkg)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed showing WindowManager overlay", e)
+        }
 
-            Log.w(TAG, "Watchdog intercepted target: $foregroundPkg (DutyMode=$isDutyBlock)")
-
-            try {
-                val overlayIntent = Intent(this, BlockOverlayActivity::class.java).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                    putExtra("BLOCKED_PACKAGE", foregroundPkg)
-                    putExtra("IS_DUTY_MODE", isDutyBlock)
-                }
-                startActivity(overlayIntent)
-            } catch (e: Exception) {
-                BlockOverlayManager.show(applicationContext, foregroundPkg)
+        // 3. Launch dedicated block overlay Activity
+        try {
+            val overlayIntent = Intent(this, BlockOverlayActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                putExtra("BLOCKED_PACKAGE", foregroundPkg)
             }
+            startActivity(overlayIntent)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed launching overlay activity", e)
         }
     }
 
     private fun getForegroundPackage(): String? {
         val usm = getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager ?: return null
         val endTime = System.currentTimeMillis()
-        val startTime = endTime - 10000 // Last 10 seconds
+        val startTime = endTime - (1000 * 60) // Last 60 seconds
 
-        // Strategy A: UsageEvents (precise activity transitions)
+        // Strategy A: UsageEvents (last 60s)
         try {
             val usageEvents = usm.queryEvents(startTime, endTime)
             val event = UsageEvents.Event()
@@ -157,21 +162,27 @@ class AppBlockerWatchdogService : Service() {
 
             while (usageEvents.hasNextEvent()) {
                 usageEvents.getNextEvent(event)
-                if (event.eventType == UsageEvents.Event.ACTIVITY_RESUMED && event.timeStamp >= lastEventTime) {
+                // 1 = ACTIVITY_RESUMED / MOVE_TO_FOREGROUND
+                if ((event.eventType == UsageEvents.Event.ACTIVITY_RESUMED || event.eventType == 1) &&
+                    event.timeStamp >= lastEventTime) {
                     lastResumedPackage = event.packageName
                     lastEventTime = event.timeStamp
                 }
             }
-            if (lastResumedPackage != null) {
+            if (!lastResumedPackage.isNullOrEmpty()) {
                 return lastResumedPackage
             }
         } catch (e: Exception) {
             Log.e(TAG, "UsageEvents query error", e)
         }
 
-        // Strategy B: queryUsageStats fallback
+        // Strategy B: queryUsageStats fallback (last 10 minutes)
         try {
-            val statsList = usm.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, startTime, endTime)
+            val statsList = usm.queryUsageStats(
+                UsageStatsManager.INTERVAL_BEST,
+                endTime - (1000 * 60 * 10),
+                endTime
+            )
             if (!statsList.isNullOrEmpty()) {
                 var mostRecentStats: android.app.usage.UsageStats? = null
                 for (stats in statsList) {
@@ -179,10 +190,25 @@ class AppBlockerWatchdogService : Service() {
                         mostRecentStats = stats
                     }
                 }
-                return mostRecentStats?.packageName
+                if (mostRecentStats != null && mostRecentStats.lastTimeUsed > (endTime - 30000)) {
+                    return mostRecentStats.packageName
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "queryUsageStats fallback error", e)
+        }
+
+        // Strategy C: ActivityManager running tasks fallback
+        try {
+            val am = getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+            @Suppress("DEPRECATION")
+            val tasks = am?.getRunningTasks(1)
+            if (!tasks.isNullOrEmpty()) {
+                val top = tasks[0].topActivity?.packageName
+                if (!top.isNullOrEmpty()) return top
+            }
+        } catch (e: Exception) {
+            // Ignore
         }
 
         return null
@@ -207,12 +233,13 @@ class AppBlockerWatchdogService : Service() {
         val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
         } else {
+            @Suppress("DEPRECATION")
             Notification.Builder(this)
         }
 
         return builder
             .setContentTitle("FocusShield Active")
-            .setContentText("Protecting your focus from blocked apps")
+            .setContentText("Firewall guarding against restricted apps")
             .setSmallIcon(android.R.drawable.ic_lock_lock)
             .setOngoing(true)
             .build()

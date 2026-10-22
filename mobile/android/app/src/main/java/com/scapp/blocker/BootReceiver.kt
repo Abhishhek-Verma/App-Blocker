@@ -8,7 +8,8 @@ import android.util.Log
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == Intent.ACTION_BOOT_COMPLETED) {
-            Log.i("BootReceiver", "FocusShield device reboot detected. Native accessibility remains registered in OS.")
+            Log.i("BootReceiver", "Device boot completed. Starting FocusShield Watchdog Service.")
+            AppBlockerWatchdogService.start(context)
         }
     }
 }
