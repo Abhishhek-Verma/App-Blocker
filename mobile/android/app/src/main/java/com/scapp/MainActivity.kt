@@ -53,6 +53,10 @@ class MainActivity : Activity() {
     private lateinit var btnGrantAccessibility: Button
     private lateinit var btnGrantOverlay: Button
     private lateinit var btnGrantUsage: Button
+    private lateinit var btnGrantDnd: Button
+
+    private lateinit var tvDutyModeStatus: TextView
+    private lateinit var btnToggleDutyMode: Button
 
     private lateinit var layoutEmptyState: View
     private lateinit var tvEmptyTitle: TextView
@@ -93,6 +97,10 @@ class MainActivity : Activity() {
         btnGrantAccessibility = findViewById(R.id.btn_grant_accessibility)
         btnGrantOverlay = findViewById(R.id.btn_grant_overlay)
         btnGrantUsage = findViewById(R.id.btn_grant_usage)
+        btnGrantDnd = findViewById(R.id.btn_grant_dnd)
+
+        tvDutyModeStatus = findViewById(R.id.tv_duty_mode_status)
+        btnToggleDutyMode = findViewById(R.id.btn_toggle_duty_mode)
 
         layoutEmptyState = findViewById(R.id.layout_empty_state)
         tvEmptyTitle = findViewById(R.id.tv_empty_title)
@@ -109,6 +117,7 @@ class MainActivity : Activity() {
 
         setupPermissionButtons()
         setupMasterToggle()
+        setupDutyMode()
         setupSearchAndTabs()
 
         loadLocalPreferences()
@@ -123,6 +132,51 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         checkPermissions()
+        val prefs = getSharedPreferences(prefsName, Context.MODE_PRIVATE)
+        val isDuty = prefs.getBoolean(AppBlockerAccessibilityService.KEY_DUTY_MODE_ACTIVE, false)
+        updateDutyModeUi(isDuty)
+    }
+
+    private fun setupDutyMode() {
+        val prefs = getSharedPreferences(prefsName, Context.MODE_PRIVATE)
+        var isDuty = prefs.getBoolean(AppBlockerAccessibilityService.KEY_DUTY_MODE_ACTIVE, false)
+        updateDutyModeUi(isDuty)
+
+        btnToggleDutyMode.setOnClickListener {
+            isDuty = !isDuty
+            prefs.edit().putBoolean(AppBlockerAccessibilityService.KEY_DUTY_MODE_ACTIVE, isDuty).apply()
+            updateDutyModeUi(isDuty)
+
+            val notifManager = getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && notifManager != null) {
+                if (notifManager.isNotificationPolicyAccessGranted) {
+                    if (isDuty) {
+                        notifManager.setInterruptionFilter(android.app.NotificationManager.INTERRUPTION_FILTER_PRIORITY)
+                        Toast.makeText(this, "🧑‍🏫 Duty Mode Active: Calls & messages silenced", Toast.LENGTH_SHORT).show()
+                    } else {
+                        notifManager.setInterruptionFilter(android.app.NotificationManager.INTERRUPTION_FILTER_ALL)
+                        Toast.makeText(this, "Duty Mode Off: Normal sound restored", Toast.LENGTH_SHORT).show()
+                    }
+                } else if (isDuty) {
+                    Toast.makeText(this, "Tip: Grant DND permission to silence incoming calls during class", Toast.LENGTH_LONG).show()
+                    startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
+                }
+            }
+        }
+    }
+
+    private fun updateDutyModeUi(active: Boolean) {
+        if (active) {
+            tvDutyModeStatus.text = "ACTIVE • Class in Session"
+            tvDutyModeStatus.setTextColor(Color.parseColor("#34D399"))
+            btnToggleDutyMode.text = "⏹ End Teacher Duty Mode"
+            btnToggleDutyMode.setBackgroundColor(Color.parseColor("#DC2626"))
+        } else {
+            tvDutyModeStatus.text = "Standby • Ready for Class"
+            tvDutyModeStatus.setTextColor(Color.parseColor("#94A3B8"))
+            btnToggleDutyMode.text = "🎯 Start Teacher Duty Mode"
+            btnToggleDutyMode.setBackgroundResource(R.drawable.bg_button_primary)
+        }
     }
 
     private fun setupPermissionButtons() {
@@ -162,6 +216,13 @@ class MainActivity : Activity() {
         btnGrantUsage.setOnClickListener {
             startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
             Toast.makeText(this, "Find 'FocusShield' and toggle 'Permit usage access' ON", Toast.LENGTH_SHORT).show()
+        }
+
+        btnGrantDnd.setOnClickListener {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
+                Toast.makeText(this, "Find 'FocusShield' and allow Do Not Disturb access", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
@@ -222,6 +283,15 @@ class MainActivity : Activity() {
 
         // When Usage is ON -> NO SHOW!
         btnGrantUsage.visibility = if (isUsageGranted) View.GONE else View.VISIBLE
+
+        // When DND is ON -> NO SHOW!
+        val notifManager = getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
+        val isDndGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && notifManager != null) {
+            notifManager.isNotificationPolicyAccessGranted
+        } else {
+            true
+        }
+        btnGrantDnd.visibility = if (isDndGranted) View.GONE else View.VISIBLE
 
         // Determine protection readiness:
         // System is armed if Overlay is granted AND at least one detection engine is operational

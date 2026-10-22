@@ -59,13 +59,41 @@ class AppBlockerWatchdogService : Service() {
         return START_STICKY
     }
 
+    private fun isDutyModeWhitelisted(pkg: String): Boolean {
+        if (pkg == applicationContext.packageName ||
+            pkg == "com.android.systemui" ||
+            pkg.contains("launcher", ignoreCase = true) ||
+            pkg.contains("inputmethod", ignoreCase = true) ||
+            pkg.contains("keyboard", ignoreCase = true)) {
+            return true
+        }
+        if (pkg == "com.openai.chatgpt" ||
+            pkg == "com.anthropic.claudebot" ||
+            pkg == "com.google.android.apps.bard" ||
+            pkg.contains("perplexity", ignoreCase = true) ||
+            pkg.contains("chatgpt", ignoreCase = true)) {
+            return true
+        }
+        if (pkg == "com.android.chrome" ||
+            pkg == "org.mozilla.firefox" ||
+            pkg == "com.brave.browser" ||
+            pkg == "com.microsoft.emmx") {
+            return true
+        }
+        if (pkg.contains("calculator", ignoreCase = true) ||
+            pkg == "com.google.android.calculator" ||
+            pkg == "com.sec.android.app.popupcalculator" ||
+            pkg == "com.miui.calculator" ||
+            pkg == "com.android.calculator2") {
+            return true
+        }
+        return false
+    }
+
     private fun checkForegroundApp() {
         val prefs = getSharedPreferences(AppBlockerAccessibilityService.PREFS_NAME, Context.MODE_PRIVATE)
         val isMaster = prefs.getBoolean(AppBlockerAccessibilityService.KEY_MASTER_ACTIVE, true)
         if (!isMaster) return
-
-        val blockedSet = prefs.getStringSet(AppBlockerAccessibilityService.KEY_BLOCKED_PACKAGES, emptySet()) ?: emptySet()
-        if (blockedSet.isEmpty()) return
 
         val foregroundPkg = getForegroundPackage() ?: return
 
@@ -76,43 +104,41 @@ class AppBlockerWatchdogService : Service() {
             return
         }
 
-        if (blockedSet.contains(foregroundPkg)) {
+        val isDutyModeActive = prefs.getBoolean(AppBlockerAccessibilityService.KEY_DUTY_MODE_ACTIVE, false)
+        val blockedSet = prefs.getStringSet(AppBlockerAccessibilityService.KEY_BLOCKED_PACKAGES, emptySet()) ?: emptySet()
+
+        val shouldBlock: Boolean
+        val isDutyBlock: Boolean
+
+        if (isDutyModeActive) {
+            if (isDutyModeWhitelisted(foregroundPkg)) return
+            shouldBlock = true
+            isDutyBlock = true
+        } else {
+            if (!blockedSet.contains(foregroundPkg)) return
+            shouldBlock = true
+            isDutyBlock = false
+        }
+
+        if (shouldBlock) {
             val now = System.currentTimeMillis()
-            // Avoid duplicate rapid-fire launches for the same app within 1.2 seconds
-            if (foregroundPkg == lastBlockedPackage && (now - lastBlockedTime) < 1200) {
+            if (foregroundPkg == lastBlockedPackage && (now - lastBlockedTime) < 1500) {
                 return
             }
             lastBlockedPackage = foregroundPkg
             lastBlockedTime = now
 
-            Log.w(TAG, "Watchdog intercepted blocked app: $foregroundPkg")
+            Log.w(TAG, "Watchdog intercepted target: $foregroundPkg (DutyMode=$isDutyBlock)")
 
-            // 1. Kick user out of blocked app to phone Home screen immediately
-            val homeIntent = Intent(Intent.ACTION_MAIN).apply {
-                addCategory(Intent.CATEGORY_HOME)
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            }
-            try {
-                startActivity(homeIntent)
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to start home intent", e)
-            }
-
-            // 2. Display WindowManager system overlay
-            BlockOverlayManager.show(applicationContext, foregroundPkg)
-
-            // 3. Activity fallback
             try {
                 val overlayIntent = Intent(this, BlockOverlayActivity::class.java).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                    addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                    addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
                     putExtra("BLOCKED_PACKAGE", foregroundPkg)
+                    putExtra("IS_DUTY_MODE", isDutyBlock)
                 }
                 startActivity(overlayIntent)
             } catch (e: Exception) {
-                // Background activity restrictions on Android 10+ / MIUI are handled by BlockOverlayManager
+                BlockOverlayManager.show(applicationContext, foregroundPkg)
             }
         }
     }

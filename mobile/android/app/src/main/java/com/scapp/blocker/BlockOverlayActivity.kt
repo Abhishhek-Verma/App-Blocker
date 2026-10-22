@@ -29,6 +29,9 @@ class BlockOverlayActivity : Activity() {
             blockedPackage.split('.').lastOrNull()?.replaceFirstChar { it.uppercase() } ?: "App"
         }
 
+        val isDutyMode = intent.getBooleanExtra("IS_DUTY_MODE", false)
+
+        val tvShieldIcon = findViewById<TextView>(com.scapp.R.id.tv_shield_icon)
         val tvTitle = findViewById<TextView>(com.scapp.R.id.tv_blocked_title)
         val tvMessage = findViewById<TextView>(com.scapp.R.id.tv_blocked_message)
         val btnReturnHome = findViewById<Button>(com.scapp.R.id.btn_return_home)
@@ -36,8 +39,17 @@ class BlockOverlayActivity : Activity() {
         val etPin = findViewById<EditText>(com.scapp.R.id.et_pin_input)
         val btnUnlockPin = findViewById<Button>(com.scapp.R.id.btn_unlock_pin)
 
-        tvTitle.text = "$appName is Blocked"
-        tvMessage.text = "$appName: No, you cannot open it."
+        if (isDutyMode) {
+            tvShieldIcon.text = "🧑‍🏫"
+            tvTitle.text = "Classroom Duty Mode"
+            tvMessage.text = "$appName is restricted during teaching session.\n\nOnly permitted classroom tools (ChatGPT, Chrome, Calculator) are accessible. Phone calls & messages are silenced."
+            btnReturnHome.text = "Return to Classroom"
+        } else {
+            tvShieldIcon.text = "🛡️"
+            tvTitle.text = "$appName is Blocked"
+            tvMessage.text = "$appName: Restricted by FocusShield."
+            btnReturnHome.text = "Back to Home Screen"
+        }
 
         // Read PIN requirements from SharedPreferences
         val prefs = getSharedPreferences(AppBlockerAccessibilityService.PREFS_NAME, Context.MODE_PRIVATE)
